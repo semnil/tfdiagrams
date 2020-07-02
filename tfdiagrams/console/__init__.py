@@ -33,4 +33,5 @@ def main():
     # patch the file output by terraform
     dot = dot.replace('["', '[\\"').replace('"] ', '\\"] ')
 
-    return generate.Diagram(dot, args.n, args.T, args.o, args.e)
+    generate.Diagram(dot, args.n, args.T, args.o, args.e)
+    return 0

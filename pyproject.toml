@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "tfdiagrams"
-version = "0.1.1"
+version = "0.1.2"
 description = ""
 authors = ["Tetsuya Shinone <info@semnil.com>"]
 
