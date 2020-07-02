@@ -36,7 +36,7 @@ description = "Diagram as Code"
 name = "diagrams"
 optional = false
 python-versions = ">=3.6,<4.0"
-version = "0.14.0"
+version = "0.15.0"
 
 [package.dependencies]
 graphviz = ">=0.13.2,<0.14.0"
@@ -212,7 +212,7 @@ docs = ["sphinx", "jaraco.packaging (>=3.2)", "rst.linker (>=1.9)"]
 testing = ["jaraco.itertools", "func-timeout"]
 
 [metadata]
-content-hash = "8d26308a1948757a79475bb7e411d7dbd70be09a796d615130d36e9f218c9f91"
+content-hash = "9950c8283d3dd6ffa893173ffcd38e2f580dbde2537610ee6cea3afa092d62e7"
 python-versions = "^3.7"
 
 [metadata.files]
@@ -229,8 +229,8 @@ colorama = [
     {file = "colorama-0.4.3.tar.gz", hash = "sha256:e96da0d330793e2cb9485e9ddfd918d456036c7149416295932478192f4436a1"},
 ]
 diagrams = [
-    {file = "diagrams-0.14.0-py3-none-any.whl", hash = "sha256:afcebb0df7f1443063c304c80d7021f69eadd9ce759a32441d5c2fbe1a5b16fe"},
-    {file = "diagrams-0.14.0.tar.gz", hash = "sha256:0c6fd33d6419a423e5c9fab04a04af12206747ece4a04ed4c6dd854b81cba9f9"},
+    {file = "diagrams-0.15.0-py3-none-any.whl", hash = "sha256:ee1430394c1dc3534db3352f1d08f47d4ca3b1ccc28f3673598526a55bdf20ed"},
+    {file = "diagrams-0.15.0.tar.gz", hash = "sha256:1c1637846d8ba57f0e5f3c731631665071d558aa1ea3dcda73c11a4698a4b612"},
 ]
 graphviz = [
     {file = "graphviz-0.13.2-py2.py3-none-any.whl", hash = "sha256:241fb099e32b8e8c2acca747211c8237e40c0b89f24b1622860075d59f4c4b25"},
