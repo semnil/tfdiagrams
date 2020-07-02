@@ -37,3 +37,11 @@ Write output to file outfile.
 
 **-e***keyword,comma,separated*  
 Exclude keywords separated by commas
+
+## Usage (docker)
+```bash
+docker run --rm -it \
+  --workdir=/app \
+  -v "$PWD:/app" \
+  semnil/tfdiagrams sh -c "terraform init && terraform graph | tfdot -ograph.png"
+```
