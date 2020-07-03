@@ -2,11 +2,9 @@
 
 Generate Diagram from terraform output.
 
-## Required packaging tool:
+![](example/count/graph.png)
 
-[Poetry](https://python-poetry.org)
-
-## Usage:
+## Usage (CLI):
 
 ```bash
 tdot [ flags ] [ input file path ]
@@ -17,14 +15,7 @@ If no input files are supplied, the program reads from **stdin**.
 ### Install packages
 
 ```bash
-$ poetry install
-Invoke commands
-
-$ poetry run tdot ...
-or
-
-$ poetry shell
-$ tdot
+$ pip install tfdiagrams
 ```
 
 ### Flags
