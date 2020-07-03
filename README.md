@@ -8,6 +8,7 @@ Generate Diagram from terraform output.
 
 ```bash
 tdot [ flags ] [ input file path ]
+# terraform graph | tfdot -ograph.png
 ```
 
 If no input files are supplied, the program reads from **stdin**.
