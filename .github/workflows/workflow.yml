@@ -1,0 +1,51 @@
+name: 'Example'
+
+on:
+  push:
+    branches-ignore:
+      - master
+
+jobs:
+  example:
+    name: 'Example'
+    runs-on: ubuntu-latest
+
+    container:
+      image: semnil/tfdiagrams:latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v2
+      - name: Add bash command (for ad-m/github-push-action)
+        if: ${{ success() }}
+        run: |
+          apk add bash
+      - name: Extract branch name
+        if: ${{ success() }}
+        shell: bash
+        run: echo "##[set-output name=branch;]$(echo ${GITHUB_REF#refs/heads/})"
+        id: extract_branch
+      - name: Git config
+        run: |
+          git config user.name "github actions"
+          git config user.email "info@semnil.com"
+
+      - name: Generate graph
+        run: |
+          cd example/count && terraform init && terraform graph | tfdot -o../../graph.png
+
+      - name: Graph update status
+        run: |
+          git add -A
+          git diff --cached --exit-code --quiet || echo "##[set-output name=update;]$(echo true)"
+        id: graph_status
+      - name: Commit files
+        if: ${{ steps.graph_status.outputs.update == 'true' }}
+        run: |
+          git commit -m "Update graph by tfdiagrams"
+      - name: Push changes
+        if: ${{ success() }}
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ steps.extract_branch.outputs.branch }}
