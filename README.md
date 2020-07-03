@@ -38,7 +38,7 @@ Write output to file outfile.
 **-e***keyword,comma,separated*  
 Exclude keywords separated by commas
 
-## Usage (docker)
+## Usage (docker):
 ```bash
 docker run --rm -it \
   --workdir=/app \
