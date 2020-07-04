@@ -22,7 +22,7 @@ $ pip install tfdiagrams
 ### Flags
 
 **-T***format*  
-Set output language to one of the supported formats. By default, attributed dot is produced.
+Set output language to one of the supported formats. By default, png image is produced.
 
 **-o***outfile*  
 Write output to file outfile.
