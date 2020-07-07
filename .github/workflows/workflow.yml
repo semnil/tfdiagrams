@@ -1,30 +1,24 @@
 name: 'Example'
 
 on:
-  push:
-    branches-ignore:
-      - master
+  pull_request:
+    types: [opened, synchronize]
 
 jobs:
   example:
-    name: 'Example'
     runs-on: ubuntu-latest
-
     container:
       image: semnil/tfdiagrams:latest
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
       - name: Add bash command (for ad-m/github-push-action)
         if: ${{ success() }}
         run: |
           apk add bash
-      - name: Extract branch name
-        if: ${{ success() }}
-        shell: bash
-        run: echo "##[set-output name=branch;]$(echo ${GITHUB_REF#refs/heads/})"
-        id: extract_branch
       - name: Git config
         run: |
           git config user.name "github actions"
@@ -42,10 +36,11 @@ jobs:
       - name: Commit files
         if: ${{ steps.graph_status.outputs.update == 'true' }}
         run: |
-          git commit -m "Update graph by tfdiagrams"
+          git commit -m "Update graph by tfdiagrams" && echo "##[set-output name=commit;]$(echo true)"
+        id: git_commit
       - name: Push changes
-        if: ${{ success() }}
+        if: ${{ steps.git_commit.outputs.commit == 'true' }}
         uses: ad-m/github-push-action@master
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          branch: ${{ steps.extract_branch.outputs.branch }}
+          branch: ${{ github.head_ref }}
