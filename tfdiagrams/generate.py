@@ -124,7 +124,7 @@ class Diagram:
                 items = []
                 for i in self.excludes:
                     for j in label_items:
-                        if i == j
+                        if i == j \
                                 or ('*' in i and re.search(i.replace('*', '.*'), j)):
                             # Allow exact match or wildcard
                             items += i
