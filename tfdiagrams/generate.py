@@ -33,6 +33,7 @@ import diagrams.aws.security
 import diagrams.aws.storage
 import os
 import pydot
+import re
 
 EXCLUDE_NODES = [
     # global
@@ -123,7 +124,9 @@ class Diagram:
                 items = []
                 for i in self.excludes:
                     for j in label_items:
-                        if i in j:
+                        if i == j
+                                or ('*' in i and re.search(i.replace('*', '.*'), j)):
+                            # Allow exact match or wildcard
                             items += i
                 if len(items) == 0:
                     node.set_name(node_name)
