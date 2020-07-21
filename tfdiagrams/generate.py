@@ -149,7 +149,9 @@ class Diagram:
                 items = []
                 for i in self.excludes:
                     for j in source_items + destination_items:
-                        if i in j:
+                        if i == j \
+                                or ('*' in i and re.search(i.replace('*', '.*'), j)):
+                            # Allow exact match or wildcard
                             items += i
                 if len(items) == 0:
                     new_edge = pydot.Edge(source_name, destination_name)
