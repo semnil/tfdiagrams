@@ -6,6 +6,6 @@ RUN apk update && apk add \
   graphviz \
   python3 \
   py3-pip
-RUN pip3 install tfdiagrams
+RUN pip3 install tfdiagrams==0.2.1
 
 ENTRYPOINT []
