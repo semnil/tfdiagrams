@@ -30,8 +30,5 @@ def main():
         for line in sys.stdin:
             dot += line
 
-    # patch the file output by terraform
-    dot = dot.replace('["', '[\\"').replace('"] ', '\\"] ')
-
     generate.Diagram(dot, args.n, args.T, args.o, args.e)
     return 0
