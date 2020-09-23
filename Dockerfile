@@ -5,6 +5,6 @@ RUN apk update && apk add \
   font-noto \
   graphviz \
   python3
-RUN pip3 install tfdiagrams
+RUN pip install tfdiagrams
 
 ENTRYPOINT []
