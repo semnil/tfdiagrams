@@ -40,7 +40,7 @@ EXCLUDE_NODES = [
     'count-boundary',
     'data',
     'output',
-    'provider',
+    'provider\[*',
     'var',
 ]
 
