@@ -1,4 +1,4 @@
-FROM hashicorp/terraform:0.13.3
+FROM hashicorp/terraform:1.3.2
 
 RUN apk update && apk add \
   ca-certificates \
@@ -6,6 +6,6 @@ RUN apk update && apk add \
   graphviz \
   python3 \
   py3-pip
-RUN pip3 install tfdiagrams==0.2.2
+RUN pip3 install tfdiagrams==0.2.3
 
 ENTRYPOINT []

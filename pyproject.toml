@@ -1,13 +1,13 @@
 [tool.poetry]
 name = "tfdiagrams"
-version = "0.2.2"
+version = "0.2.3"
 description = ""
 authors = ["Tetsuya Shinone <info@semnil.com>"]
 
 [tool.poetry.dependencies]
 python = "^3.7"
-pydot = "^1.4.1"
-diagrams = "^0.15.0"
+pydot = "^1.4.2"
+diagrams = "^0.22.0"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"
