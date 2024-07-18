@@ -21,8 +21,8 @@ jobs:
           apk add bash
       - name: Git config
         run: |
-          git config user.name "github actions"
-          git config user.email "info@semnil.com"
+          git config --global user.name "github actions"
+          git config --global user.email "info@semnil.com"
 
       - name: Generate graph
         run: |
