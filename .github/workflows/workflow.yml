@@ -4,6 +4,10 @@ on:
   pull_request:
     types: [opened, synchronize]
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   example:
     runs-on: ubuntu-latest
@@ -12,7 +16,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4.1.7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - name: Add bash command (for ad-m/github-push-action)
@@ -21,8 +25,9 @@ jobs:
           apk add bash
       - name: Git config
         run: |
-          git config user.name "github actions"
-          git config user.email "info@semnil.com"
+          git config --global user.name "github actions"
+          git config --global user.email "info@semnil.com"
+          git config --global --add safe.directory /__w/tfdiagrams/tfdiagrams
 
       - name: Generate graph
         run: |
