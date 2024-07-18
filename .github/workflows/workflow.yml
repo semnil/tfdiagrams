@@ -23,6 +23,7 @@ jobs:
         run: |
           git config --global user.name "github actions"
           git config --global user.email "info@semnil.com"
+          git config --global --add safe.directory /__w/tfdiagrams/tfdiagrams
 
       - name: Generate graph
         run: |
