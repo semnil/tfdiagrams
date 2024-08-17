@@ -41,12 +41,18 @@ jobs:
 
       - name: Generate graph
         run: |
-          cd example/count && terraform init && terraform graph | tfdot -o../../graph.png
-
-      - name: Graph update status
+          cd example/count && terraform init && terraform graph | tfdot -ograph.png
+          git add -A
+          git diff --cached --exit-code --quiet || echo "update=true" >> $GITHUB_OUTPUT
+        id: graph_status
+      - name: Commit files
+        if: ${{ steps.graph_status.outputs.update == 'true' }}
         run: |
-          git commit -a -m "Update graph by tfdiagrams"
+          git commit -m "Update graph by tfdiagrams" && echo "commit=true" >> $GITHUB_OUTPUT
+        id: git_commit
       - name: Push changes
+        if: ${{ steps.git_commit.outputs.commit == 'true' }}
         uses: ad-m/github-push-action@master
         with:
+          branch: ${{ github.head_ref }}
           github_token: ${{ steps.app-token.outputs.token }}
