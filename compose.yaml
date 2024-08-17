@@ -4,4 +4,4 @@ services:
     volumes:
       - .:/app
     command: >
-      /bin/sh -c "cd example/count && terraform init -upgrade && terraform graph | tfdot -o../../graph.png"
+      /bin/sh -c "cd example/count && terraform init -upgrade && terraform graph | tfdot -ograph.png"
