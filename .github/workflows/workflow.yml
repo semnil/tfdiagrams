@@ -12,7 +12,7 @@ jobs:
   example:
     runs-on: ubuntu-latest
     container:
-      image: semnil/tfdiagrams:latest
+      image: semnil/tfdiagrams:1.9.2
 
     steps:
       - name: Check out repository

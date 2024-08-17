@@ -1,11 +1,11 @@
 [tool.poetry]
 name = "tfdiagrams"
-version = "0.2.4"
+version = "1.9.2"
 description = ""
 authors = ["Tetsuya Shinone <info@semnil.com>"]
 
 [tool.poetry.dependencies]
-python = "^3.7"
+python = "^3.12"
 pydot = "^1.4.2"
 diagrams = "^0.23.4"
 
