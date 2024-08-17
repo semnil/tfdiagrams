@@ -2,10 +2,9 @@ name: 'Example'
 
 on:
   pull_request:
-    types: [opened, synchronize]
 
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
 
 jobs:
@@ -16,9 +15,10 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4.1.7
+        uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
       - name: Add bash command (for ad-m/github-push-action)
         if: ${{ success() }}
         run: |
@@ -47,5 +47,4 @@ jobs:
         if: ${{ steps.git_commit.outputs.commit == 'true' }}
         uses: ad-m/github-push-action@master
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
           branch: ${{ github.head_ref }}
