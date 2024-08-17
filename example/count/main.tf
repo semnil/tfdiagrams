@@ -17,10 +17,18 @@ resource "aws_elb" "web" {
   }
 
   # The instances are registered automatically
-  instances = ["${aws_instance.web.*.id}"]
+  instances = ["${aws_instance.web.*.id}","${aws_instance.test.*.id}"]
 }
 
 resource "aws_instance" "web" {
+  instance_type = "m1.small"
+  ami           = "${lookup(var.aws_amis, var.aws_region)}"
+
+  # This will create 4 instances
+  count = 4
+}
+
+resource "aws_instance" "test" {
   instance_type = "m1.small"
   ami           = "${lookup(var.aws_amis, var.aws_region)}"
 
