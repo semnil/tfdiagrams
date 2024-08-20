@@ -7,10 +7,6 @@ permissions:
   contents: write
   pull-requests: write
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   example:
     runs-on: ubuntu-latest
@@ -56,3 +52,14 @@ jobs:
         with:
           branch: ${{ github.head_ref }}
           github_token: ${{ steps.app-token.outputs.token }}
+
+  call-workflow-graph:
+    uses: ./.github/workflows/graph.yml
+    strategy:
+      matrix:
+        path: [example/count]
+    with:
+      ref: ${{ github.head_ref }}
+      branch: ${{ github.head_ref }}
+      terraform-path: ${{ matrix.path }}
+    secrets: inherit
