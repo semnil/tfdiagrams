@@ -1,0 +1,48 @@
+on:
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+      branch:
+        required: true
+        type: string
+      terraform-path:
+        required: true
+        type: string
+
+jobs:
+  graph:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip3 install tfdiagrams==0.3.0
+      - uses: ts-graphviz/setup-graphviz@v2
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.4"
+      - name: Generate graph
+        run: |
+          cd ${{ inputs.terraform-path }}
+          terraform init
+          terraform graph | tfdot -ograph.png
+      - name: Commit files
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add graph.png
+          git commit -m "chore: Update graph by tfdiagrams"
+          # Exclude unexpected changes such as .terraform.lock.hcl.
+          git checkout -- .
+          # Rebase because other jobs might push
+          git pull --rebase origin ${{ inputs.ref }}
+      - name: Push changes
+        uses: ad-m/github-push-action@master
+        with:
+          branch: ${{ inputs.ref }}

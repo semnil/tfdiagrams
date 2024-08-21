@@ -7,52 +7,14 @@ permissions:
   contents: write
   pull-requests: write
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  example:
-    runs-on: ubuntu-latest
-    container:
-      image: semnil/tfdiagrams:0.3.1
-
-    steps:
-      - uses: actions/create-github-app-token@v1
-        id: app-token
-        with:
-          app-id: ${{ vars.APP_ID }}
-          private-key: ${{ secrets.PRIVATE_KEY }}
-      - name: Check out repository
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-          fetch-depth: 0
-          token: ${{ steps.app-token.outputs.token }}
-      - name: Add bash command (for ad-m/github-push-action)
-        if: ${{ success() }}
-        run: |
-          apk add bash
-      - name: Git config
-        run: |
-          git config --global user.name "github actions"
-          git config --global user.email "1051877+semnil@users.noreply.github.com"
-          git config --global --add safe.directory /__w/tfdiagrams/tfdiagrams
-
-      - name: Generate graph
-        run: |
-          cd example/count && terraform init && terraform graph | tfdot -ograph.png
-          git add -A
-          git diff --cached --exit-code --quiet || echo "update=true" >> $GITHUB_OUTPUT
-        id: graph_status
-      - name: Commit files
-        if: ${{ steps.graph_status.outputs.update == 'true' }}
-        run: |
-          git commit -m "Update graph by tfdiagrams" && echo "commit=true" >> $GITHUB_OUTPUT
-        id: git_commit
-      - name: Push changes
-        if: ${{ steps.git_commit.outputs.commit == 'true' }}
-        uses: ad-m/github-push-action@master
-        with:
-          branch: ${{ github.head_ref }}
-          github_token: ${{ steps.app-token.outputs.token }}
+  call-workflow-graph:
+    uses: ./.github/workflows/graph.yml
+    strategy:
+      matrix:
+        path: [example/count]
+    with:
+      ref: ${{ github.head_ref }}
+      branch: ${{ github.head_ref }}
+      terraform-path: ${{ matrix.path }}
+    secrets: inherit
