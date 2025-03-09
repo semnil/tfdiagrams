@@ -168,13 +168,13 @@ testing = ["pytest", "pytest-benchmark"]
 
 [[package]]
 name = "pydot"
-version = "3.0.1"
+version = "3.0.4"
 description = "Python interface to Graphviz's Dot"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "pydot-3.0.1-py3-none-any.whl", hash = "sha256:43f1e878dc1ff7c1c2e3470a6999d4e9e97771c5c862440c2f0af0ba844c231f"},
-    {file = "pydot-3.0.1.tar.gz", hash = "sha256:e18cf7f287c497d77b536a3d20a46284568fea390776dface6eabbdf1b1b5efc"},
+    {file = "pydot-3.0.4-py3-none-any.whl", hash = "sha256:bfa9c3fc0c44ba1d132adce131802d7df00429d1a79cc0346b0a5cd374dbe9c6"},
+    {file = "pydot-3.0.4.tar.gz", hash = "sha256:3ce88b2558f3808b0376f22bfa6c263909e1c3981e2a7b629b65b451eee4a25d"},
 ]
 
 [package.dependencies]
@@ -183,7 +183,7 @@ pyparsing = ">=3.0.9"
 [package.extras]
 dev = ["chardet", "parameterized", "ruff"]
 release = ["zest.releaser[recommended]"]
-tests = ["chardet", "parameterized", "ruff", "tox", "unittest-parallel"]
+tests = ["chardet", "parameterized", "pytest", "pytest-cov", "pytest-xdist[psutil]", "ruff", "tox"]
 
 [[package]]
 name = "pyparsing"
