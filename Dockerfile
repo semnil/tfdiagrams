@@ -10,6 +10,6 @@ RUN apk update && apk add \
   python3-dev \
   py3-pip
 
-RUN pip3 install tfdiagrams==0.3.0 --break-system-packages
+RUN pip3 install tfdiagrams==0.4.0 --break-system-packages
 
 ENTRYPOINT []
