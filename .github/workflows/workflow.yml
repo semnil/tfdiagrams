@@ -15,7 +15,7 @@ jobs:
   example:
     runs-on: ubuntu-latest
     container:
-      image: semnil/tfdiagrams:0.3.1
+      image: semnil/tfdiagrams:0.4.0
 
     steps:
       - uses: actions/create-github-app-token@v1
