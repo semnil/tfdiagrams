@@ -10,7 +10,7 @@ pydot = "^4.0.1"
 diagrams = "^0.25.1"
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^9.0.2"
+pytest = "^9.0.3"
 
 [tool.poetry.scripts]
 tfdot = "tfdiagrams.console:main"
