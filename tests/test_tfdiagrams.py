@@ -1,5 +1,5 @@
-from tfdiagrams import __version__
+from importlib.metadata import version
 
 
 def test_version():
-    assert __version__ == '0.1.0'
+    assert version('tfdiagrams')
