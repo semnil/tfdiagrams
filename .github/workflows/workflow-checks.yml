@@ -1,8 +1,14 @@
 name: Workflow checks
 
-# Runs on every pull request: every jobs.<id>.uses and jobs.<id>.steps[*].uses in .github/workflows/ must be a 40-character commit SHA with a # vX.Y.Z comment on the same line (local ./ references are exempt)
+# Runs on every pull request with this file as it is on the default branch (pull_request_target),
+# so a pull request cannot change the check that judges it. The pull request's workflow and action files are
+# fetched as data through the GitHub API at the head commit and parsed with yq; nothing from the pull request
+# is checked out or executed, and the token is read-only.
+# Every jobs.<id>.uses / jobs.<id>.steps[*].uses in .github/workflows/ and runs.steps[*].uses in action.yml /
+# action.yaml must be a 40-character commit SHA with a # vX.Y.Z comment on the same line (local ./ references
+# are exempt).
 on:
-  pull_request:
+  pull_request_target:
 
 permissions:
   contents: read
@@ -12,28 +18,55 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
+      - name: Fetch the pull request's workflow and action files
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          src="$RUNNER_TEMP/pr-files"
+          mkdir -p "$src"
+          gh api "repos/${GITHUB_REPOSITORY}/git/trees/${HEAD_SHA}?recursive=1" > "$RUNNER_TEMP/tree.json"
+          truncated=$(yq -p=json '.truncated' "$RUNNER_TEMP/tree.json")
+          if [ "$truncated" != "false" ]; then
+            echo "::error::git tree listing of ${HEAD_SHA} is truncated (truncated=${truncated})"
+            exit 1
+          fi
+          yq -p=json -o=tsv '.tree[] | select(.type == "blob") | select(.path | (test("^[.]github/workflows/[^/]+[.]ya?ml$") or test("(^|/)action[.]ya?ml$"))) | [.path, .sha]' "$RUNNER_TEMP/tree.json" > "$RUNNER_TEMP/files.tsv"
+          while IFS=$'\t' read -r path blob; do
+            mkdir -p "$src/$(dirname "$path")"
+            gh api -H "Accept: application/vnd.github.raw" "repos/${GITHUB_REPOSITORY}/git/blobs/${blob}" > "$src/$path"
+          done < "$RUNNER_TEMP/files.tsv"
 
       - name: Check that every uses is pinned to a commit SHA
         shell: bash
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          shopt -s nullglob
-          files=(.github/workflows/*.yml .github/workflows/*.yaml)
-          uses='(.jobs[] | select(has("uses")) | .uses), (.jobs[].steps[]? | select(has("uses")) | .uses)'
-          unpinned='('"$uses"') | select((test("^[.]/") | not) and ((test("^[^@[:space:]]+@[0-9a-f]{40}$") and (line_comment | test("^v[0-9]+[.][0-9]+[.][0-9]+$"))) | not)) | filename + ":" + (line | tostring) + ": " + . + "  # " + line_comment'
+          cd "$RUNNER_TEMP/pr-files"
+          workflows=()
+          actions=()
+          while IFS=$'\t' read -r path _; do
+            if [[ "$path" =~ ^\.github/workflows/[^/]+\.ya?ml$ ]]; then workflows+=("$path"); fi
+            if [[ "$path" =~ (^|/)action\.ya?ml$ ]]; then actions+=("$path"); fi
+          done < "$RUNNER_TEMP/files.tsv"
+          workflow_uses='(.jobs[] | select(has("uses")) | .uses), (.jobs[].steps[]? | select(has("uses")) | .uses)'
+          action_uses='(.runs.steps[]? | select(has("uses")) | .uses)'
+          unpinned='select((test("^[.]/") | not) and ((test("^[^@[:space:]]+@[0-9a-f]{40}$") and (line_comment | test("^v[0-9]+[.][0-9]+[.][0-9]+$"))) | not)) | filename + ":" + (line | tostring) + ": " + . + "  # " + line_comment'
           yq --version
           total=0
           : > "$RUNNER_TEMP/unpinned.txt"
-          for f in "${files[@]}"; do
-            n=$(yq "[${uses}] | length" "$f")
+          check() {
+            local query="$1" file="$2" n
+            n=$(yq "[${query}] | length" "$file")
             total=$((total + n))
-            yq "$unpinned" "$f" >> "$RUNNER_TEMP/unpinned.txt"
-          done
-          echo "Checked ${total} uses entries in ${#files[@]} files"
+            yq "(${query}) | ${unpinned}" "$file" >> "$RUNNER_TEMP/unpinned.txt"
+          }
+          for f in "${workflows[@]}"; do check "$workflow_uses" "$f"; done
+          for f in "${actions[@]}"; do check "$action_uses" "$f"; done
+          echo "Checked ${total} uses entries in ${#workflows[@]} workflow files and ${#actions[@]} action files at ${HEAD_SHA}"
           if [ "$total" -eq 0 ]; then
-            echo "::error::No uses entries found under .github/workflows"
+            echo "::error::No uses entries found"
             exit 1
           fi
           if [ -s "$RUNNER_TEMP/unpinned.txt" ]; then
