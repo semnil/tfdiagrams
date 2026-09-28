@@ -1,6 +1,6 @@
 name: Workflow checks
 
-# Runs on every pull request: every uses: in .github/workflows/ must be pinned to a 40-character commit SHA followed by a version comment
+# Runs on every pull request: every jobs.<id>.uses and jobs.<id>.steps[*].uses in .github/workflows/ must be a 40-character commit SHA with a # vX.Y.Z comment on the same line (local ./ references are exempt)
 on:
   pull_request:
 
@@ -21,11 +21,23 @@ jobs:
         run: |
           shopt -s nullglob
           files=(.github/workflows/*.yml .github/workflows/*.yaml)
-          grep -nE '^[[:space:]]*(-[[:space:]]*)?uses:' "${files[@]}" > "$RUNNER_TEMP/uses.txt"
-          status=0
-          grep -vE -e 'uses:[[:space:]]*\./' -e '@[0-9a-f]{40} # v[0-9]+\.[0-9]+\.[0-9]+[[:space:]]*$' "$RUNNER_TEMP/uses.txt" || status=$?
-          case "$status" in
-            0) echo "::error::uses: must be pinned as @<40-char commit SHA> # vX.Y.Z"; exit 1 ;;
-            1) echo "All uses: are pinned" ;;
-            *) exit "$status" ;;
-          esac
+          uses='(.jobs[] | select(has("uses")) | .uses), (.jobs[].steps[]? | select(has("uses")) | .uses)'
+          unpinned='('"$uses"') | select((test("^[.]/") | not) and ((test("^[^@[:space:]]+@[0-9a-f]{40}$") and (line_comment | test("^v[0-9]+[.][0-9]+[.][0-9]+$"))) | not)) | filename + ":" + (line | tostring) + ": " + . + "  # " + line_comment'
+          yq --version
+          total=0
+          : > "$RUNNER_TEMP/unpinned.txt"
+          for f in "${files[@]}"; do
+            n=$(yq "[${uses}] | length" "$f")
+            total=$((total + n))
+            yq "$unpinned" "$f" >> "$RUNNER_TEMP/unpinned.txt"
+          done
+          echo "Checked ${total} uses entries in ${#files[@]} files"
+          if [ "$total" -eq 0 ]; then
+            echo "::error::No uses entries found under .github/workflows"
+            exit 1
+          fi
+          if [ -s "$RUNNER_TEMP/unpinned.txt" ]; then
+            echo "::error::uses must be @<40-char commit SHA> with a # vX.Y.Z comment on the same line"
+            cat "$RUNNER_TEMP/unpinned.txt"
+            exit 1
+          fi
