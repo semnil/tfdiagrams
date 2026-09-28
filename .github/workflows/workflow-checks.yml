@@ -1,0 +1,31 @@
+name: Workflow checks
+
+# Runs on every pull request: every uses: in .github/workflows/ must be pinned to a 40-character commit SHA followed by a version comment
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  action-pins:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Check that every uses is pinned to a commit SHA
+        shell: bash
+        run: |
+          shopt -s nullglob
+          files=(.github/workflows/*.yml .github/workflows/*.yaml)
+          grep -nE '^[[:space:]]*(-[[:space:]]*)?uses:' "${files[@]}" > "$RUNNER_TEMP/uses.txt"
+          status=0
+          grep -vE -e 'uses:[[:space:]]*\./' -e '@[0-9a-f]{40} # v[0-9]+\.[0-9]+\.[0-9]+[[:space:]]*$' "$RUNNER_TEMP/uses.txt" || status=$?
+          case "$status" in
+            0) echo "::error::uses: must be pinned as @<40-char commit SHA> # vX.Y.Z"; exit 1 ;;
+            1) echo "All uses: are pinned" ;;
+            *) exit "$status" ;;
+          esac
