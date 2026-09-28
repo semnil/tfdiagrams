@@ -69,42 +69,56 @@ jobs:
             mkdir -p "$src/$(dirname "$path")"
             gh api -H "Accept: application/vnd.github.raw" "repos/${GITHUB_REPOSITORY}/git/blobs/${blob}" > "$src/$path"
           done < "$RUNNER_TEMP/files.tsv"
-          yq -p=json -o=tsv '.tree[] | select(.mode == "160000" or .mode == "120000") | [.path, .mode]' "$RUNNER_TEMP/tree.json" > "$RUNNER_TEMP/links.tsv"
+          yq -p=json -o=tsv '.tree[] | select(.mode == "160000" or .mode == "120000") | [(.path | split("/") | map((select(test("^[\x00-\x7f]*$")) | downcase) // "*") | join("/")), .path, .mode]' "$RUNNER_TEMP/tree.json" > "$RUNNER_TEMP/links.tsv"
           : > "$RUNNER_TEMP/local-refs.tsv"
           while IFS=$'\t' read -r path _; do
             if [[ "$path" =~ ^\.github/workflows/[^/]+\.ya?ml$ ]]; then
-              (cd "$src" && yq '((.jobs[] | select(has("uses")) | .uses), (.jobs[].steps[]? | select(has("uses")) | .uses)) | select(test("^[.]/")) | filename + "	" + (line | tostring) + "	" + .' "$path") >> "$RUNNER_TEMP/local-refs.tsv"
+              (cd "$src" && yq '((.jobs[] | select(has("uses")) | .uses), (.jobs[].steps[]? | select(has("uses")) | .uses)) | select(test("^[.$]/")) | filename + "	" + (line | tostring) + "	" + (test("^[.$]/[A-Za-z0-9._/-]*$") | tostring) + "	" + (. | @json)' "$path") >> "$RUNNER_TEMP/local-refs.tsv"
             fi
             if [[ "$path" =~ (^|/)action\.ya?ml$ ]]; then
-              (cd "$src" && yq '(.runs.steps[]? | select(has("uses")) | .uses) | select(test("^[.]/")) | filename + "	" + (line | tostring) + "	" + .' "$path") >> "$RUNNER_TEMP/local-refs.tsv"
+              (cd "$src" && yq '(.runs.steps[]? | select(has("uses")) | .uses) | select(test("^[.$]/")) | filename + "	" + (line | tostring) + "	" + (test("^[.$]/[A-Za-z0-9._/-]*$") | tostring) + "	" + (. | @json)' "$path") >> "$RUNNER_TEMP/local-refs.tsv"
             fi
           done < "$RUNNER_TEMP/files.tsv"
           : > "$RUNNER_TEMP/bad-local.txt"
-          while IFS=$'\t' read -r file line ref; do
-            rel="${ref#./}"
-            rel="${rel%/}"
-            if [ -z "$rel" ]; then continue; fi
+          while IFS=$'\t' read -r file line valid json; do
+            ref="${json#\"}"
+            ref="${ref%\"}"
             reason=""
-            prefix=""
-            IFS=/ read -r -a parts <<< "$rel"
-            for part in "${parts[@]}"; do
-              case "$part" in
-                "" | . | ..) reason="non-canonical path"; break ;;
-              esac
-              prefix="${prefix:+$prefix/}$part"
-              while IFS=$'\t' read -r lpath lmode; do
-                if [ "$prefix" = "$lpath" ]; then
-                  if [ "$lmode" = "160000" ]; then reason="submodule ${lpath}"; else reason="symlink ${lpath}"; fi
-                fi
-              done < "$RUNNER_TEMP/links.tsv"
-              if [ -n "$reason" ]; then break; fi
-            done
+            if [ "$valid" != "true" ]; then
+              reason="characters other than A-Z a-z 0-9 . _ - /"
+            else
+              rel="${ref:2}"
+              rel="${rel%/}"
+              if [ -z "$rel" ]; then continue; fi
+              lower=$(printf '%s' "$rel" | LC_ALL=C tr '[:upper:]' '[:lower:]')
+              IFS=/ read -r -a parts <<< "$lower"
+              depth=0
+              for part in "${parts[@]}"; do
+                case "$part" in
+                  "" | *.) reason="non-canonical path"; break ;;
+                esac
+                depth=$((depth + 1))
+                while IFS=$'\t' read -r lfold lpath lmode; do
+                  IFS=/ read -r -a lparts <<< "$lfold"
+                  if [ "${#lparts[@]}" -ne "$depth" ]; then continue; fi
+                  match=1
+                  for ((i = 0; i < depth; i++)); do
+                    if [ "${lparts[$i]}" != "*" ] && [ "${lparts[$i]}" != "${parts[$i]}" ]; then match=0; break; fi
+                  done
+                  if [ "$match" = 1 ]; then
+                    if [ "$lmode" = "160000" ]; then reason="submodule ${lpath}"; else reason="symlink ${lpath}"; fi
+                    break
+                  fi
+                done < "$RUNNER_TEMP/links.tsv"
+                if [ -n "$reason" ]; then break; fi
+              done
+            fi
             if [ -n "$reason" ]; then
-              echo "${file}:${line}: ${ref} (${reason})" >> "$RUNNER_TEMP/bad-local.txt"
+              echo "${file}:${line}: ${json} (${reason})" >> "$RUNNER_TEMP/bad-local.txt"
             fi
           done < "$RUNNER_TEMP/local-refs.tsv"
           if [ -s "$RUNNER_TEMP/bad-local.txt" ]; then
-            echo "::error::local ./ uses must be a canonical path that does not go through a symlink or into a submodule (the referenced action.yml would not be checked)"
+            echo '::error::local ./ and $/ uses must be a canonical path of A-Z a-z 0-9 . _ - characters that does not go through a symlink or into a submodule, compared case-insensitively (the referenced action.yml would not be checked)'
             cat "$RUNNER_TEMP/bad-local.txt"
             exit 1
           fi
