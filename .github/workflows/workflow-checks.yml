@@ -5,8 +5,8 @@ name: Workflow checks
 # fetched as data through the GitHub API at the head commit and parsed with yq; nothing from the pull request
 # is checked out or executed, and the token is read-only.
 # Every jobs.<id>.uses / jobs.<id>.steps[*].uses in .github/workflows/ and runs.steps[*].uses in action.yml /
-# action.yaml must be a 40-character commit SHA with a # vX.Y.Z comment on the same line (local ./ references
-# are exempt).
+# action.yaml must be a 40-character commit SHA with a # vX.Y.Z comment on the same line (local ./ and $/
+# references are exempt). This file itself must be identical to the default branch (PROTECTED_PATTERN).
 on:
   pull_request_target:
 
@@ -23,6 +23,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PROTECTED_PATTERN: '^\.github/workflows/workflow-checks\.yml$'
         run: |
           src="$RUNNER_TEMP/pr-files"
           mkdir -p "$src"
@@ -32,7 +33,38 @@ jobs:
             echo "::error::git tree listing of ${HEAD_SHA} is truncated (truncated=${truncated})"
             exit 1
           fi
-          yq -p=json -o=tsv '.tree[] | select(.type == "blob") | select(.path | (test("^[.]github/workflows/[^/]+[.]ya?ml$") or test("(^|/)action[.]ya?ml$"))) | [.path, .sha]' "$RUNNER_TEMP/tree.json" > "$RUNNER_TEMP/files.tsv"
+          gh api "repos/${GITHUB_REPOSITORY}/git/trees/${GITHUB_SHA}?recursive=1" > "$RUNNER_TEMP/base-tree.json"
+          base_truncated=$(yq -p=json '.truncated' "$RUNNER_TEMP/base-tree.json")
+          if [ "$base_truncated" != "false" ]; then
+            echo "::error::git tree listing of ${GITHUB_SHA} is truncated (truncated=${base_truncated})"
+            exit 1
+          fi
+          protected='.tree[] | select(.type == "blob" and (.path | test(env(PROTECTED_PATTERN)))) | [.path, .mode, .sha]'
+          yq -p=json -o=tsv "$protected" "$RUNNER_TEMP/base-tree.json" | LC_ALL=C sort > "$RUNNER_TEMP/protected-base.tsv"
+          yq -p=json -o=tsv "$protected" "$RUNNER_TEMP/tree.json" | LC_ALL=C sort > "$RUNNER_TEMP/protected-head.tsv"
+          if [ ! -s "$RUNNER_TEMP/protected-base.tsv" ]; then
+            echo "::error::no file on the default branch matches PROTECTED_PATTERN (${PROTECTED_PATTERN})"
+            exit 1
+          fi
+          if ! cmp -s "$RUNNER_TEMP/protected-base.tsv" "$RUNNER_TEMP/protected-head.tsv"; then
+            echo "::error::the files of this check must be identical to the default branch (to change them, lift the required status check first)"
+            diff "$RUNNER_TEMP/protected-base.tsv" "$RUNNER_TEMP/protected-head.tsv"
+            exit 1
+          fi
+          yq -p=json -o=tsv '.tree[] | select(.path | (test("(?i)(^|/)action[.]ya?ml$") and (test("(^|/)action[.]ya?ml$") | not))) | .path' "$RUNNER_TEMP/tree.json" > "$RUNNER_TEMP/non-canonical.tsv"
+          if [ -s "$RUNNER_TEMP/non-canonical.tsv" ]; then
+            echo "::error::action file names must be lowercase action.yml / action.yaml (a case-insensitive file system opens these as action.yml)"
+            cat "$RUNNER_TEMP/non-canonical.tsv"
+            exit 1
+          fi
+          targets='.tree[] | select(.path | (test("^[.]github/workflows/[^/]+[.]ya?ml$") or test("(^|/)action[.]ya?ml$")))'
+          yq -p=json -o=tsv "${targets} | select(.type != \"blob\" or (.mode != \"100644\" and .mode != \"100755\")) | [.path, .type, .mode]" "$RUNNER_TEMP/tree.json" > "$RUNNER_TEMP/non-regular.tsv"
+          if [ -s "$RUNNER_TEMP/non-regular.tsv" ]; then
+            echo "::error::workflow and action files must be regular files (symlinks and other entries are rejected)"
+            cat "$RUNNER_TEMP/non-regular.tsv"
+            exit 1
+          fi
+          yq -p=json -o=tsv "${targets} | [.path, .sha]" "$RUNNER_TEMP/tree.json" > "$RUNNER_TEMP/files.tsv"
           while IFS=$'\t' read -r path blob; do
             mkdir -p "$src/$(dirname "$path")"
             gh api -H "Accept: application/vnd.github.raw" "repos/${GITHUB_REPOSITORY}/git/blobs/${blob}" > "$src/$path"
@@ -52,7 +84,7 @@ jobs:
           done < "$RUNNER_TEMP/files.tsv"
           workflow_uses='(.jobs[] | select(has("uses")) | .uses), (.jobs[].steps[]? | select(has("uses")) | .uses)'
           action_uses='(.runs.steps[]? | select(has("uses")) | .uses)'
-          unpinned='select((test("^[.]/") | not) and ((test("^[^@[:space:]]+@[0-9a-f]{40}$") and (line_comment | test("^v[0-9]+[.][0-9]+[.][0-9]+$"))) | not)) | filename + ":" + (line | tostring) + ": " + . + "  # " + line_comment'
+          unpinned='select((test("^[.$]/") | not) and ((test("^[^@[:space:]]+@[0-9a-f]{40}$") and (line_comment | test("^v[0-9]+[.][0-9]+[.][0-9]+$"))) | not)) | filename + ":" + (line | tostring) + ": " + . + "  # " + line_comment'
           yq --version
           total=0
           : > "$RUNNER_TEMP/unpinned.txt"
