@@ -32,6 +32,12 @@ jobs:
             echo "::error::git tree listing of ${HEAD_SHA} is truncated (truncated=${truncated})"
             exit 1
           fi
+          yq -p=json -o=tsv '.tree[] | select(.path | (test("(?i)(^|/)action[.]ya?ml$") and (test("(^|/)action[.]ya?ml$") | not))) | .path' "$RUNNER_TEMP/tree.json" > "$RUNNER_TEMP/non-canonical.tsv"
+          if [ -s "$RUNNER_TEMP/non-canonical.tsv" ]; then
+            echo "::error::action file names must be lowercase action.yml / action.yaml (a case-insensitive file system opens these as action.yml)"
+            cat "$RUNNER_TEMP/non-canonical.tsv"
+            exit 1
+          fi
           targets='.tree[] | select(.path | (test("^[.]github/workflows/[^/]+[.]ya?ml$") or test("(^|/)action[.]ya?ml$")))'
           yq -p=json -o=tsv "${targets} | select(.type != \"blob\" or (.mode != \"100644\" and .mode != \"100755\")) | [.path, .type, .mode]" "$RUNNER_TEMP/tree.json" > "$RUNNER_TEMP/non-regular.tsv"
           if [ -s "$RUNNER_TEMP/non-regular.tsv" ]; then
