@@ -1,0 +1,10 @@
+name: Duplicate
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  action-pins:
+    runs-on: ubuntu-latest
+    steps:
+      - run: exit 0
