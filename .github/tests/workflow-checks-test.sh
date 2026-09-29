@@ -2,11 +2,14 @@
 # Runs the fetch and check steps of the action pin workflow against fixture git trees served by a fake gh,
 # and asserts which fixtures pass and which fail with which reason.
 # WORKFLOW_FILE and WORKFLOW_JOB select the workflow under test (relative to the repository root, or absolute).
+# WORKFLOW_CHECK_STEP=absent declares a workflow without the pin check step; the pin cases are then skipped.
+# Otherwise a missing pin check step fails the test.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 workflow="${WORKFLOW_FILE:-.github/workflows/workflow-checks.yml}"
 job="${WORKFLOW_JOB:-action-pins}"
+check_step_mode="${WORKFLOW_CHECK_STEP:-required}"
 case "$workflow" in
   /*) workflow_path="$workflow" ;;
   *) workflow_path="$root/$workflow" ;;
@@ -20,10 +23,31 @@ step_field() {
 fetch=$(step_field "$fetch_step" run)
 check=$(step_field "$check_step" run)
 pattern=$(step_field "$fetch_step" env.PROTECTED_PATTERN)
-if [ -z "$fetch" ] || [ -z "$pattern" ]; then
+if [ -z "$fetch" ] || [ "$fetch" = "null" ] || [ -z "$pattern" ] || [ "$pattern" = "null" ]; then
   echo "the fetch step or its PROTECTED_PATTERN was not found in ${workflow} (job ${job})" >&2
   exit 1
 fi
+if [ "$check" = "null" ]; then
+  check=""
+fi
+case "$check_step_mode" in
+  required)
+    if [ -z "$check" ]; then
+      echo "the \"${check_step}\" step was not found in ${workflow} (job ${job}); set WORKFLOW_CHECK_STEP=absent only for a workflow that has no pin check step" >&2
+      exit 1
+    fi
+    ;;
+  absent)
+    if [ -n "$check" ]; then
+      echo "WORKFLOW_CHECK_STEP=absent but ${workflow} (job ${job}) has the \"${check_step}\" step" >&2
+      exit 1
+    fi
+    ;;
+  *)
+    echo "WORKFLOW_CHECK_STEP must be required or absent (got ${check_step_mode})" >&2
+    exit 1
+    ;;
+esac
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -105,7 +129,7 @@ EOF
 skip_without_check() {
   if [ -z "$check" ]; then
     skipped=$((skipped + 1))
-    echo "skip $1 (${workflow} has no \"${check_step}\" step)"
+    echo "skip $1 (WORKFLOW_CHECK_STEP=absent)"
     return 0
   fi
   return 1
