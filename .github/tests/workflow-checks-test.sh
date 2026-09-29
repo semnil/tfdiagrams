@@ -161,44 +161,65 @@ step_case() {
 composite_case() {
   new_case
   layout
-  file .github/workflows/w.yml "$(workflow_yml "      - uses: ./.github/actions/x
+  file .github/workflows/w.yml "$(workflow_yml "      - uses: \$/.github/actions/x
 ")"
   file .github/actions/x/action.yml "$(composite_yml "    - uses: $4
 ")"
   run "composite step: $1" "$2" "$3"
 }
+reusable_yml() {
+  printf 'name: r\non:\n  workflow_call:\njobs:\n  r:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@%s # v5.1.0\n' "$sha"
+}
+job_case() {
+  new_case
+  layout
+  file .github/workflows/r.yml "$(reusable_yml)"
+  file .github/workflows/w.yml "$(workflow_yml "")
+  b:
+    uses: $4
+"
+  run "job: $1" "$2" "$3"
+}
+workspace='runner workspace; use $/)'
 
 for kind in step_case composite_case; do
-  $kind "ordinary local action (unrelated symlink and submodules present)" pass "" ./.github/actions/ok
-  $kind "\$/ reference to an ordinary action" pass "" '$/.github/actions/ok'
-  $kind "submodule ./vendor" fail "(submodule vendor)" ./vendor
-  $kind "below a submodule ./vendor/act" fail "(submodule vendor)" ./vendor/act
-  $kind "symlink ./alias" fail "(symlink alias)" ./alias
-  $kind "case-changed submodule ./VENDOR/act" fail "(submodule vendor)" ./VENDOR/act
-  $kind "case-changed symlink ./Alias" fail "(symlink alias)" ./Alias
-  $kind "lower-case reference to the submodule Tools/Sub" fail "(submodule Tools/Sub)" ./tools/sub/act
+  $kind "\$/ reference to an ordinary action (unrelated symlink and submodules present)" pass "" '$/.github/actions/ok'
+  $kind "./ reference to an ordinary action" fail "$workspace" ./.github/actions/ok
+  $kind "./ reference into a submodule" fail "$workspace" ./vendor
   $kind "\$/ into a submodule" fail "(submodule vendor)" '$/vendor'
-  $kind "\$/ through a case-changed symlink" fail "(symlink alias)" '$/Alias/act'
-  $kind ".. component ./docs/../vendor" fail "(non-canonical path)" ./docs/../vendor
-  $kind "backslash ./x\\..\\vendor" fail "(characters other than" './x\..\vendor'
+  $kind "\$/ below a submodule" fail "(submodule vendor)" '$/vendor/act'
+  $kind "\$/ through a symlink" fail "(symlink alias)" '$/alias'
+  $kind "\$/ case-changed submodule" fail "(submodule vendor)" '$/VENDOR/act'
+  $kind "\$/ case-changed symlink" fail "(symlink alias)" '$/Alias/act'
+  $kind "\$/ lower-case reference to the submodule Tools/Sub" fail "(submodule Tools/Sub)" '$/tools/sub/act'
+  $kind "\$/ .. component" fail "(non-canonical path)" '$/docs/../vendor'
+  $kind "\$/ backslash" fail "(characters other than" '$/x\..\vendor'
   if ! skip_without_check "${kind%_case}: unpinned action"; then
     $kind "unpinned action" fail "uses must be @<40-char commit SHA>" actions/checkout@v5
   fi
 done
 
-new_case
-layout
-file .github/workflows/w.yml "$(workflow_yml "")
-  b:
-    uses: ./vendor/.github/workflows/r.yml
-"
-run "reusable workflow inside a submodule" fail "(submodule vendor)"
+job_case "./ reusable workflow in the repository" pass "" ./.github/workflows/r.yml
+job_case "\$/ reusable workflow in the repository" pass "" '$/.github/workflows/r.yml'
+job_case "./ reusable workflow inside a submodule" fail "(submodule vendor)" ./vendor/.github/workflows/r.yml
+job_case "./ reusable workflow through a case-changed submodule path" fail "(submodule vendor)" ./VENDOR/.github/workflows/r.yml
+job_case "./ reusable workflow with a .. component" fail "(non-canonical path)" ./docs/../.github/workflows/r.yml
 
 new_case
-file .github/workflows/w.yml "$(workflow_yml "      - uses: ./key
+layout
+file .github/workflows/w.yml "$(workflow_yml "      - uses: actions/checkout@$sha # v5.1.0
+        with:
+          repository: someone/external
+          path: external-action
+      - uses: ./external-action
+")"
+run "workflow step: ./ to another repository checked out into the workspace" fail "$workspace"
+
+new_case
+file .github/workflows/w.yml "$(workflow_yml "      - uses: \$/key
 ")"
 submodule "$(printf '\342\204\252')ey"
-run "submodule whose name starts with KELVIN SIGN, reached by ./key" fail "(submodule "
+run "submodule whose name starts with KELVIN SIGN, reached by \$/key" fail "(submodule "
 
 new_case
 layout
