@@ -1,0 +1,6 @@
+name: probe
+description: probe
+runs:
+  using: composite
+  steps:
+    - uses: ./.github/actions/probe-other
