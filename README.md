@@ -37,3 +37,5 @@ docker run --rm -it \
   -v "$PWD:/app" \
   semnil/tfdiagrams sh -c "terraform init && terraform graph | tfdot -ograph.png"
 ```
+
+<!-- probe -->
