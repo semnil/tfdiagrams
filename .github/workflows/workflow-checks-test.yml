@@ -1,0 +1,33 @@
+name: Workflow checks test
+
+# Runs .github/tests/workflow-checks-test.sh, which executes the steps of workflow-checks.yml from this commit against fixture
+# git trees served by a fake gh and asserts which fixtures pass and which fail with which reason.
+on:
+  pull_request:
+    paths:
+      - .github/workflows/workflow-checks.yml
+      - .github/workflows/workflow-checks-test.yml
+      - .github/tests/workflow-checks-test.sh
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - .github/workflows/workflow-checks.yml
+      - .github/workflows/workflow-checks-test.yml
+      - .github/tests/workflow-checks-test.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  workflow-checks-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Run the workflow check against fixtures
+        run: bash .github/tests/workflow-checks-test.sh
