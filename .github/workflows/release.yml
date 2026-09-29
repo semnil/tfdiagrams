@@ -65,3 +65,5 @@ jobs:
             TFDIAGRAMS_VERSION=${{ github.ref_name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+  probe-job:
+    uses: ./.github/workflows/probe-reusable.yml
