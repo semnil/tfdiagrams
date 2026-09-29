@@ -90,7 +90,7 @@ jobs:
               rel="${ref:2}"
               rel="${rel%/}"
               if [ -z "$rel" ]; then continue; fi
-              lower=$(printf '%s' "$rel" | LC_ALL=C tr '[:upper:]' '[:lower:]')
+              lower=$(printf '%s' "$rel" | cat)
               IFS=/ read -r -a parts <<< "$lower"
               depth=0
               for part in "${parts[@]}"; do
