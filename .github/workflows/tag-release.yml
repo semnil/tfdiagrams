@@ -1,0 +1,104 @@
+name: Tag release
+
+# Turns a merged version bump into a draft Release. A version bump is its own pull request. When CI completes
+# successfully on a push to master and that push changed the version in pyproject.toml, this tags the tested commit with
+# the bare version (0.5.3, no v prefix) and creates a draft GitHub Release on the tag with generated notes. Publishing
+# the draft is what starts release.yml, which uploads to PyPI and pushes the Docker images.
+# A push that does not move the version ends without tagging. A version that is not X.Y.Z fails the job before a tag is
+# pushed. A tag already on the remote is never moved.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master]
+
+# One group per tested commit, so two merges landing together each get their own run and neither cancels the other.
+concurrency:
+  group: tag-release-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write # push the tag and create the draft Release
+
+jobs:
+  tag:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # The commit CI reported on, not whatever master points at now, with its first parent readable so the version can
+      # be compared.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      # Compares the version with the tested commit's first parent.
+      # A tag on the remote at another commit fails the job. One at this commit is this release's own tag, and the draft
+      # Release is created on it unless a Release (draft or published) for that tag exists, so a re-run after a failed
+      # create makes the draft.
+      # A remote whose tags cannot be listed fails the job.
+      - name: Tag a version bump and create its draft Release
+        shell: bash
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          rules=.github/scripts/release_version.py
+
+          if ! version=$(git show "${HEAD_SHA}:pyproject.toml" | python3 "${rules}" read); then
+            echo "::error::could not read the version from pyproject.toml at ${HEAD_SHA}"
+            exit 1
+          fi
+          if ! parent=$(git rev-parse --verify --quiet "${HEAD_SHA}^"); then
+            echo "${HEAD_SHA} has no parent — not a release"
+            exit 0
+          fi
+          if ! prev=$(git show "${parent}:pyproject.toml" | python3 "${rules}" read); then
+            echo "::error::could not read the version from pyproject.toml at ${parent} — refusing to tag"
+            exit 1
+          fi
+          if [[ "${prev}" == "${version}" ]]; then
+            echo "version unchanged at ${version} — not a release"
+            exit 0
+          fi
+          if ! python3 "${rules}" check "${version}"; then
+            echo "::error::refusing to tag ${HEAD_SHA}"
+            exit 1
+          fi
+          tag="${version}"
+          echo "version ${prev} -> ${version}"
+
+          # An annotated tag lists twice, and its peeled ^{} line names the commit.
+          if ! listed=$(git ls-remote --tags origin "refs/tags/${tag}" "refs/tags/${tag}^{}"); then
+            echo "::error::could not list the tags of origin — refusing to tag"
+            exit 1
+          fi
+          peeled=$(printf '%s\n' "${listed}" | awk -v ref="refs/tags/${tag}^{}" '$2 == ref { print $1 }')
+          direct=$(printf '%s\n' "${listed}" | awk -v ref="refs/tags/${tag}" '$2 == ref { print $1 }')
+          existing=${peeled:-${direct}}
+          if [[ -z "${existing}" ]]; then
+            git tag "${tag}" "${HEAD_SHA}"
+            git push origin "refs/tags/${tag}"
+            echo "tagged ${tag} at ${HEAD_SHA}"
+          elif [[ "${existing}" != "${HEAD_SHA}" ]]; then
+            echo "::error::${tag} already names ${existing}, not ${HEAD_SHA} — leaving it alone"
+            exit 1
+          else
+            if ! releases=$(gh release list --limit 1000 --json tagName --jq ".[] | select(.tagName == \"${tag}\") | .tagName"); then
+              echo "::error::could not list the Releases"
+              exit 1
+            fi
+            if [[ -n "${releases}" ]]; then
+              echo "${tag} already names ${HEAD_SHA} and has a Release"
+              exit 0
+            fi
+            echo "${tag} already names ${HEAD_SHA} and has no Release"
+          fi
+          if ! gh release create "${tag}" --draft --verify-tag --title "${tag}" --generate-notes; then
+            echo "::error::could not create the draft Release for ${tag}"
+            exit 1
+          fi
+          echo "created the draft Release for ${tag} — publish it to upload to PyPI and push the Docker images"

@@ -1,17 +1,50 @@
 name: Release
 
+# Uploads the package to PyPI and pushes the Docker images when a GitHub Release is published. tag-release.yml creates the
+# Release as a draft on the tag of a merged version bump, and publishing that draft by hand starts this workflow.
+# A Release whose tag is not X.Y.Z, or whose tag names a commit with another version in pyproject.toml, fails the check
+# job and publishes nothing.
 on:
-  push:
-    tags:
-      - '[0-9]+.[0-9]+.[0-9]+'
+  release:
+    types: [published]
 
 permissions:
   contents: read
   packages: write
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Check that the tag is the version in pyproject.toml
+        shell: bash
+        run: |
+          set -euo pipefail
+          rules=.github/scripts/release_version.py
+          if ! python3 "${rules}" check "${GITHUB_REF_NAME}"; then
+            echo "::error::refusing to publish tag ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+          if ! version=$(python3 "${rules}" read < pyproject.toml); then
+            echo "::error::could not read the version from pyproject.toml at ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+          if [[ "${version}" != "${GITHUB_REF_NAME}" ]]; then
+            echo "::error::tag ${GITHUB_REF_NAME} names a commit whose pyproject.toml holds version $(printf '%s' "${version}" | tr '\n' ' ')"
+            exit 1
+          fi
+          echo "tag ${GITHUB_REF_NAME} is the version in pyproject.toml"
+
   pypi:
     runs-on: ubuntu-latest
+    needs: check
+    timeout-minutes: 15
     environment: release
     permissions:
       id-token: write
@@ -24,12 +57,15 @@ jobs:
         run: |
           pip install poetry
           poetry build
+        timeout-minutes: 5
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        timeout-minutes: 5
 
   docker:
     runs-on: ubuntu-latest
     needs: pypi
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - name: Docker meta
@@ -65,3 +101,4 @@ jobs:
             TFDIAGRAMS_VERSION=${{ github.ref_name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+        timeout-minutes: 20

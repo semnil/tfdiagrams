@@ -1,6 +1,7 @@
 name: CI
 
 # Runs the tests and builds the package on every pull request and every push to master.
+# tag-release.yml starts when this workflow completes on a push to master, and tags only a commit this workflow passed.
 on:
   push:
     branches:
@@ -32,3 +33,13 @@ jobs:
         run: poetry run pytest -q
       - name: Build
         run: poetry build
+
+  release-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Run the release workflow tests
+        run: bash .github/tests/release-test.sh
