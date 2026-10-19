@@ -56,11 +56,11 @@ jobs:
             echo "${HEAD_SHA} has no parent — not a release"
             exit 0
           fi
-          if ! prev=$(git show "${parent}:pyproject.toml" | python3 "${rules}" read); then
+          if ! previous=$(git show "${parent}:pyproject.toml" | python3 "${rules}" read); then
             echo "::error::could not read the version from pyproject.toml at ${parent} — refusing to tag"
             exit 1
           fi
-          if [[ "${prev}" == "${version}" ]]; then
+          if [[ "${previous}" == "${version}" ]]; then
             echo "version unchanged at ${version} — not a release"
             exit 0
           fi
@@ -69,7 +69,7 @@ jobs:
             exit 1
           fi
           tag="${version}"
-          echo "version ${prev} -> ${version}"
+          echo "version ${previous} -> ${version}"
 
           # An annotated tag lists twice, and its peeled ^{} line names the commit.
           if ! listed=$(git ls-remote --tags origin "refs/tags/${tag}" "refs/tags/${tag}^{}"); then

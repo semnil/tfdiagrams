@@ -102,11 +102,11 @@ args=("\$@")
 case "\$1 \$2" in
   "release list")
     if [ -e "$dir/list-fails" ]; then echo "HTTP 502: Bad Gateway" >&2; exit 1; fi
-    expr=""
+    expression=""
     for ((i = 0; i < \${#args[@]}; i++)); do
-      if [ "\${args[\$i]}" = --jq ]; then expr="\${args[\$((i + 1))]}"; fi
+      if [ "\${args[\$i]}" = --jq ]; then expression="\${args[\$((i + 1))]}"; fi
     done
-    jq -r "\$expr" "$dir/releases.json"
+    jq -r "\$expression" "$dir/releases.json"
     ;;
   "release create")
     if [ -e "$dir/create-fails" ]; then echo "HTTP 422: Validation Failed" >&2; exit 1; fi
@@ -193,28 +193,28 @@ list_releases='release list --limit 1000 --json tagName --jq .[] | select(.tagNa
 create_draft='release create 0.5.3 --draft --verify-tag --title 0.5.3 --generate-notes'
 
 new_repo_case "a version bump is tagged at the tested commit and gets a draft Release"
-c1=$(commit_version 0.5.2)
-t1=$(remote_tag 0.5.2 "$c1")
-c2=$(commit_version 0.5.3)
+commit1=$(commit_version 0.5.2)
+tag1=$(remote_tag 0.5.2 "$commit1")
+commit2=$(commit_version 0.5.3)
 push_master
-run_tag_step "$c2"
+run_tag_step "$commit2"
 expect_status pass
-expect_tags "0.5.2=$t1" "0.5.3=$c2"
+expect_tags "0.5.2=$tag1" "0.5.3=$commit2"
 expect_gh "$create_draft"
 end_case
 
 new_repo_case "a merge commit of a version bump is compared with its first parent and tagged"
-c1=$(commit_version 0.5.2)
+commit1=$(commit_version 0.5.2)
 git -C "$dir/src" checkout -q -b bump
-c2=$(commit_version 0.5.3)
+commit2=$(commit_version 0.5.3)
 git -C "$dir/src" checkout -q master
 commit_other > /dev/null
 git -C "$dir/src" merge -q --no-ff -m merge bump
-m=$(git -C "$dir/src" rev-parse HEAD)
+merged=$(git -C "$dir/src" rev-parse HEAD)
 push_master
-run_tag_step "$m"
+run_tag_step "$merged"
 expect_status pass
-expect_tags "0.5.3=$m"
+expect_tags "0.5.3=$merged"
 expect_gh "$create_draft"
 end_case
 
@@ -223,32 +223,32 @@ commit_version 0.5.2 > /dev/null
 git -C "$dir/src" checkout -q -b topic
 commit_other > /dev/null
 git -C "$dir/src" checkout -q master
-c2=$(commit_version 0.5.3)
-t2=$(remote_tag 0.5.3 "$c2")
+commit2=$(commit_version 0.5.3)
+tag2=$(remote_tag 0.5.3 "$commit2")
 git -C "$dir/src" merge -q --no-ff -m merge topic
-m=$(git -C "$dir/src" rev-parse HEAD)
+merged=$(git -C "$dir/src" rev-parse HEAD)
 push_master
-run_tag_step "$m"
+run_tag_step "$merged"
 expect_status pass
-expect_tags "0.5.3=$t2"
+expect_tags "0.5.3=$tag2"
 expect_gh
 end_case
 
 new_repo_case "a push that does not move the version tags nothing and creates nothing"
-c1=$(commit_version 0.5.2)
-t1=$(remote_tag 0.5.2 "$c1")
-c2=$(commit_other)
+commit1=$(commit_version 0.5.2)
+tag1=$(remote_tag 0.5.2 "$commit1")
+commit2=$(commit_other)
 push_master
-run_tag_step "$c2"
+run_tag_step "$commit2"
 expect_status pass
-expect_tags "0.5.2=$t1"
+expect_tags "0.5.2=$tag1"
 expect_gh
 end_case
 
 new_repo_case "a root commit is not a release"
-c1=$(commit_version 0.5.3)
+commit1=$(commit_version 0.5.3)
 push_master
-run_tag_step "$c1"
+run_tag_step "$commit1"
 expect_status pass
 expect_tags
 expect_gh
@@ -256,10 +256,10 @@ end_case
 
 for bad in 0.6.0rc1 v0.5.3 0.6; do
   new_repo_case "version ${bad} is refused before a tag is pushed"
-  c1=$(commit_version 0.5.2)
-  c2=$(commit_version "$bad")
+  commit1=$(commit_version 0.5.2)
+  commit2=$(commit_version "$bad")
   push_master
-  run_tag_step "$c2"
+  run_tag_step "$commit2"
   expect_status fail "::error::version ${bad} is not a release version (X.Y.Z)"
   expect_tags
   expect_gh
@@ -267,121 +267,121 @@ for bad in 0.6.0rc1 v0.5.3 0.6; do
 done
 
 new_repo_case "a version holding a newline is refused on one ::error:: line"
-c1=$(commit_version 0.5.2)
-c2=$(commit_version '0.5.3\nx')
+commit1=$(commit_version 0.5.2)
+commit2=$(commit_version '0.5.3\nx')
 push_master
-run_tag_step "$c2"
+run_tag_step "$commit2"
 expect_status fail "::error::version 0.5.3 x is not a release version (X.Y.Z)"
 expect_tags
 expect_gh
 end_case
 
 new_repo_case "a first parent without a readable version refuses to tag"
-c1=$(commit_version -)
-c2=$(commit_version 0.5.3)
+commit1=$(commit_version -)
+commit2=$(commit_version 0.5.3)
 push_master
-run_tag_step "$c2"
-expect_status fail "could not read the version from pyproject.toml at ${c1}"
+run_tag_step "$commit2"
+expect_status fail "could not read the version from pyproject.toml at ${commit1}"
 expect_tags
 expect_gh
 end_case
 
 new_repo_case "a tested commit without a readable version fails"
-c1=$(commit_version 0.5.2)
-c2=$(commit_version -)
+commit1=$(commit_version 0.5.2)
+commit2=$(commit_version -)
 push_master
-run_tag_step "$c2"
-expect_status fail "could not read the version from pyproject.toml at ${c2}"
+run_tag_step "$commit2"
+expect_status fail "could not read the version from pyproject.toml at ${commit2}"
 expect_tags
 expect_gh
 end_case
 
 new_repo_case "a tag already at another commit is left alone and fails the job"
-c1=$(commit_version 0.5.2)
-t1=$(remote_tag 0.5.3 "$c1")
-c2=$(commit_version 0.5.3)
+commit1=$(commit_version 0.5.2)
+tag1=$(remote_tag 0.5.3 "$commit1")
+commit2=$(commit_version 0.5.3)
 push_master
-run_tag_step "$c2"
-expect_status fail "0.5.3 already names ${c1}, not ${c2}"
-expect_tags "0.5.3=$t1"
+run_tag_step "$commit2"
+expect_status fail "0.5.3 already names ${commit1}, not ${commit2}"
+expect_tags "0.5.3=$tag1"
 expect_gh
 end_case
 
 new_repo_case "an annotated tag already at another commit is left alone and fails the job"
-c1=$(commit_version 0.5.2)
-t1=$(remote_tag 0.5.3 "$c1" annotated)
-c2=$(commit_version 0.5.3)
+commit1=$(commit_version 0.5.2)
+tag1=$(remote_tag 0.5.3 "$commit1" annotated)
+commit2=$(commit_version 0.5.3)
 push_master
-run_tag_step "$c2"
-expect_status fail "0.5.3 already names ${c1}, not ${c2}"
-expect_tags "0.5.3=$t1"
+run_tag_step "$commit2"
+expect_status fail "0.5.3 already names ${commit1}, not ${commit2}"
+expect_tags "0.5.3=$tag1"
 expect_gh
 end_case
 
 new_repo_case "a tag already at the tested commit without a Release gets the draft"
-c1=$(commit_version 0.5.2)
-c2=$(commit_version 0.5.3)
-t2=$(remote_tag 0.5.3 "$c2")
+commit1=$(commit_version 0.5.2)
+commit2=$(commit_version 0.5.3)
+tag2=$(remote_tag 0.5.3 "$commit2")
 echo '[{"tagName":"0.5.2"}]' > "$dir/releases.json"
 push_master
-run_tag_step "$c2"
+run_tag_step "$commit2"
 expect_status pass
-expect_tags "0.5.3=$t2"
+expect_tags "0.5.3=$tag2"
 expect_gh "$list_releases" "$create_draft"
 end_case
 
 new_repo_case "an annotated tag already at the tested commit without a Release gets the draft"
-c1=$(commit_version 0.5.2)
-c2=$(commit_version 0.5.3)
-t2=$(remote_tag 0.5.3 "$c2" annotated)
+commit1=$(commit_version 0.5.2)
+commit2=$(commit_version 0.5.3)
+tag2=$(remote_tag 0.5.3 "$commit2" annotated)
 push_master
-run_tag_step "$c2"
+run_tag_step "$commit2"
 expect_status pass
-expect_tags "0.5.3=$t2"
+expect_tags "0.5.3=$tag2"
 expect_gh "$list_releases" "$create_draft"
 end_case
 
 new_repo_case "a tag already at the tested commit with a Release gets no second one"
-c1=$(commit_version 0.5.2)
-c2=$(commit_version 0.5.3)
-t2=$(remote_tag 0.5.3 "$c2")
+commit1=$(commit_version 0.5.2)
+commit2=$(commit_version 0.5.3)
+tag2=$(remote_tag 0.5.3 "$commit2")
 echo '[{"tagName":"0.5.2"},{"tagName":"0.5.3"}]' > "$dir/releases.json"
 push_master
-run_tag_step "$c2"
+run_tag_step "$commit2"
 expect_status pass
-expect_tags "0.5.3=$t2"
+expect_tags "0.5.3=$tag2"
 expect_gh "$list_releases"
 end_case
 
 new_repo_case "Releases that cannot be listed fail the job before a draft is created"
-c1=$(commit_version 0.5.2)
-c2=$(commit_version 0.5.3)
-t2=$(remote_tag 0.5.3 "$c2")
+commit1=$(commit_version 0.5.2)
+commit2=$(commit_version 0.5.3)
+tag2=$(remote_tag 0.5.3 "$commit2")
 touch "$dir/list-fails"
 push_master
-run_tag_step "$c2"
+run_tag_step "$commit2"
 expect_status fail "::error::could not list the Releases"
-expect_tags "0.5.3=$t2"
+expect_tags "0.5.3=$tag2"
 expect_gh "$list_releases"
 end_case
 
 new_repo_case "a failed draft create fails the job and leaves the pushed tag"
-c1=$(commit_version 0.5.2)
-c2=$(commit_version 0.5.3)
+commit1=$(commit_version 0.5.2)
+commit2=$(commit_version 0.5.3)
 touch "$dir/create-fails"
 push_master
-run_tag_step "$c2"
+run_tag_step "$commit2"
 expect_status fail "could not create the draft Release for 0.5.3"
-expect_tags "0.5.3=$c2"
+expect_tags "0.5.3=$commit2"
 expect_gh "$create_draft"
 end_case
 
 new_repo_case "an origin whose tags cannot be listed fails the job before tagging"
-c1=$(commit_version 0.5.2)
-c2=$(commit_version 0.5.3)
+commit1=$(commit_version 0.5.2)
+commit2=$(commit_version 0.5.3)
 push_master
 break_origin=1
-run_tag_step "$c2"
+run_tag_step "$commit2"
 expect_status fail "could not list the tags of origin"
 expect_tags
 expect_gh
