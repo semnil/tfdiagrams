@@ -2,12 +2,14 @@
 
 Generate Diagram from terraform output.
 
+> 日本語版は [README.ja.md](README.ja.md) を参照してください.
+
 ![](example/count/graph.png)
 
 ## Usage (CLI):
 
 ```bash
-tdot [ flags ] [ input file path ]
+tfdot [ flags ] [ input file path ]
 # terraform graph | tfdot -ograph.png
 ```
 
