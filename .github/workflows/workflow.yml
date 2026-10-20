@@ -14,6 +14,7 @@ concurrency:
 jobs:
   example:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -27,8 +28,17 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - name: Build the wheel from this checkout
+        run: |
+          pip install poetry
+          poetry build -f wheel
+        timeout-minutes: 5
       - name: Build container
-        run: docker build -t tfdiagrams-local .
+        run: docker build --target source -t tfdiagrams-local .
+        timeout-minutes: 10
       - name: Git config
         run: |
           git config --global user.name "github actions"
@@ -41,6 +51,7 @@ jobs:
           git add -A
           git diff --cached --exit-code --quiet || echo "update=true" >> "$GITHUB_OUTPUT"
         id: graph_status
+        timeout-minutes: 10
       - name: Commit files
         if: ${{ steps.graph_status.outputs.update == 'true' }}
         run: |
