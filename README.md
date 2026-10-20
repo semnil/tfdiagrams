@@ -2,6 +2,8 @@
 
 Generate Diagram from terraform output.
 
+> 日本語版は [README.ja.md](README.ja.md) を参照してください.
+
 ![](example/count/graph.png)
 
 ## Usage (CLI):

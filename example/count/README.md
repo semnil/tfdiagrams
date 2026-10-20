@@ -1,5 +1,7 @@
 # Count Example
 
+> 日本語版は [README.ja.md](README.ja.md) を参照してください.
+
 The count parameter on resources can simplify configurations
 and let you scale resources by simply incrementing a number.
 
