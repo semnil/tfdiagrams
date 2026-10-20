@@ -1,6 +1,6 @@
 FROM hashicorp/terraform:1.14
 
-ARG TFDIAGRAMS_VERSION=0.5.1
+ARG TFDIAGRAMS_VERSION=0.5.2
 
 RUN apk update && apk add \
   ca-certificates \
