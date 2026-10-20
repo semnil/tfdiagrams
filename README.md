@@ -7,7 +7,7 @@ Generate Diagram from terraform output.
 ## Usage (CLI):
 
 ```bash
-tdot [ flags ] [ input file path ]
+tfdot [ flags ] [ input file path ]
 # terraform graph | tfdot -ograph.png
 ```
 
