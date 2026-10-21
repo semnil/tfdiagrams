@@ -25,6 +25,6 @@ RUN pip3 install /tmp/dist/*.whl --break-system-packages
 # The default target installs TFDIAGRAMS_VERSION from PyPI. release.yml passes the tag as TFDIAGRAMS_VERSION.
 FROM base
 
-ARG TFDIAGRAMS_VERSION=0.5.2
+ARG TFDIAGRAMS_VERSION=0.5.3
 
 RUN pip3 install tfdiagrams==${TFDIAGRAMS_VERSION} --break-system-packages
