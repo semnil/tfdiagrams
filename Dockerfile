@@ -1,6 +1,6 @@
-FROM hashicorp/terraform:1.14 AS base
+FROM hashicorp/terraform:1.16 AS base
 
-RUN apk update && apk add \
+RUN apk update && apk upgrade && apk add \
   ca-certificates \
   font-noto \
   gcc \
