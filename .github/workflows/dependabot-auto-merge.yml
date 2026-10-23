@@ -1,0 +1,50 @@
+name: Dependabot auto-merge
+
+# Decides whether a Dependabot pull request merges on its own. For a Dependabot pull request whose update
+# is a semver patch or minor, it enables auto-merge (merge commit) pinned to the head commit it read, so a
+# run for an older head cannot enable it for a newer one. For any other update type, including one
+# fetch-metadata cannot read, it turns off an auto-merge an earlier head enabled: a push from Dependabot
+# leaves auto-merge on, and a rebase can turn a patch or minor into a major update. On every other pull
+# request both steps are skipped.
+# The step fails when it cannot read whether auto-merge is on.
+# The job reports `auto-merge`, a required status check of the default branch, so a pull request does not
+# merge before the run for its head commit has decided. The Dependabot condition therefore sits on the
+# steps and not on the job, and the trigger carries no filter: the job reports on every pull request.
+# A merge made by auto-merge is attributed to GITHUB_TOKEN, so the push it makes to the default branch
+# starts no workflow.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - id: metadata
+        if: github.event.pull_request.user.login == 'dependabot[bot]'
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+      - name: Enable auto-merge for a patch or minor update, disable it otherwise
+        if: github.event.pull_request.user.login == 'dependabot[bot]'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+        run: |
+          if [ "$UPDATE_TYPE" = 'version-update:semver-patch' ] || [ "$UPDATE_TYPE" = 'version-update:semver-minor' ]; then
+            gh pr merge --auto --merge --match-head-commit "$HEAD_SHA" "$PR_URL"
+          else
+            enabled=$(gh pr view "$PR_URL" --json autoMergeRequest --jq '.autoMergeRequest != null')
+            if [ "$enabled" = 'true' ]; then
+              gh pr merge --disable-auto "$PR_URL"
+            elif [ "$enabled" != 'false' ]; then
+              echo "::error::could not read whether auto-merge is enabled: '$enabled'"
+              exit 1
+            fi
+          fi
