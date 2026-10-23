@@ -2,11 +2,13 @@ name: Dependabot auto-merge
 
 # Decides whether a Dependabot pull request merges on its own. For a Dependabot pull request whose update
 # is a semver patch or minor, it enables auto-merge (merge commit) pinned to the head commit it read, so a
-# run for an older head cannot enable it for a newer one. For any other update type, including one
-# fetch-metadata cannot read, it turns off an auto-merge an earlier head enabled: a push from Dependabot
-# leaves auto-merge on, and a rebase can turn a patch or minor into a major update. On every other pull
-# request both steps are skipped.
-# The step fails when it cannot read whether auto-merge is on.
+# run for an older head cannot enable it for a newer one, and only when the pull request has one commit,
+# that commit is the head the event names, dependabot[bot] wrote it and GitHub verified its signature:
+# fetch-metadata classifies the first commit alone. For any other update type, including one
+# fetch-metadata cannot read, and for any other commit history, it turns off an auto-merge an earlier head
+# enabled: a push leaves auto-merge on, and a rebase or an added commit can change the update. On every
+# other pull request both steps are skipped.
+# The step fails when it cannot read the commits of the pull request or whether auto-merge is on.
 # The job reports `auto-merge`, a required status check of the default branch, so a pull request does not
 # merge before the run for its head commit has decided. The Dependabot condition therefore sits on the
 # steps and not on the job, and the trigger carries no filter: the job reports on every pull request.
@@ -29,15 +31,24 @@ jobs:
       - id: metadata
         if: github.event.pull_request.user.login == 'dependabot[bot]'
         uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
-      - name: Enable auto-merge for a patch or minor update, disable it otherwise
+      - name: Enable auto-merge for a patch or minor update Dependabot alone wrote, disable it otherwise
         if: github.event.pull_request.user.login == 'dependabot[bot]'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
         run: |
+          eligible=false
           if [ "$UPDATE_TYPE" = 'version-update:semver-patch' ] || [ "$UPDATE_TYPE" = 'version-update:semver-minor' ]; then
+            commits=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/commits?per_page=100")
+            eligible=$(printf '%s' "$commits" | jq -r --arg head "$HEAD_SHA" '
+              length == 1 and .[0].sha == $head
+              and .[0].author.login == "dependabot[bot]"
+              and .[0].commit.verification.verified == true')
+          fi
+          if [ "$eligible" = 'true' ]; then
             gh pr merge --auto --merge --match-head-commit "$HEAD_SHA" "$PR_URL"
           else
             enabled=$(gh pr view "$PR_URL" --json autoMergeRequest --jq '.autoMergeRequest != null')
