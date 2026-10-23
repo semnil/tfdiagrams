@@ -3,8 +3,9 @@ name: Dependabot auto-merge
 # Decides whether a Dependabot pull request merges on its own. For a Dependabot pull request whose update
 # is a semver patch or minor, it enables auto-merge (merge commit) pinned to the head commit it read, so a
 # run for an older head cannot enable it for a newer one, and only when the pull request has one commit,
-# that commit is the head the event names, dependabot[bot] wrote it and GitHub verified its signature:
-# fetch-metadata classifies the first commit alone. For any other update type, including one
+# that commit is the head the event names, dependabot[bot] wrote it, GitHub (web-flow) committed it and
+# GitHub verified its signature: fetch-metadata classifies the first commit alone, and an amend keeps the
+# author while it makes the amending person the committer. For any other update type, including one
 # fetch-metadata cannot read, and for any other commit history, it turns off an auto-merge an earlier head
 # enabled: a push leaves auto-merge on, and a rebase or an added commit can change the update. On every
 # other pull request both steps are skipped.
@@ -46,6 +47,7 @@ jobs:
             eligible=$(printf '%s' "$commits" | jq -r --arg head "$HEAD_SHA" '
               length == 1 and .[0].sha == $head
               and .[0].author.login == "dependabot[bot]"
+              and .[0].committer.login == "web-flow"
               and .[0].commit.verification.verified == true')
           fi
           if [ "$eligible" = 'true' ]; then
