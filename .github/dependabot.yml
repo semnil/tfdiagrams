@@ -1,0 +1,17 @@
+version: 2
+updates:
+  # Python dependencies (Dependabot reads pyproject.toml and poetry.lock).
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: daily
+  # The base image of the Dockerfile.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: daily
+  # The actions the workflows use.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: daily
