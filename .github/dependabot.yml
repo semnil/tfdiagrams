@@ -1,17 +1,25 @@
 version: 2
+# Every entry runs every day at 00:00 JST on a cron schedule; `interval: daily`
+# runs on weekdays only.
 updates:
   # Python dependencies (Dependabot reads pyproject.toml and poetry.lock).
   - package-ecosystem: pip
     directory: /
     schedule:
-      interval: daily
+      interval: cron
+      cronjob: "0 0 * * *"
+      timezone: "Asia/Tokyo"
   # The base image of the Dockerfile.
   - package-ecosystem: docker
     directory: /
     schedule:
-      interval: daily
+      interval: cron
+      cronjob: "0 0 * * *"
+      timezone: "Asia/Tokyo"
   # The actions the workflows use.
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: daily
+      interval: cron
+      cronjob: "0 0 * * *"
+      timezone: "Asia/Tokyo"
