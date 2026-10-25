@@ -6,10 +6,11 @@ name: Dependabot auto-merge
 # that commit is the head the event names, dependabot[bot] wrote it, GitHub (web-flow) committed it and
 # GitHub verified its signature: fetch-metadata classifies the first commit alone, and an amend keeps the
 # author while it makes the amending person the committer. For any other update type, including one
-# fetch-metadata cannot read, and for any other commit history, it turns off an auto-merge an earlier head
-# enabled: a push leaves auto-merge on, and a rebase or an added commit can change the update. On every
-# other pull request both steps are skipped.
-# The step fails when it cannot read the commits of the pull request or whether auto-merge is on.
+# fetch-metadata cannot read or a run in which fetch-metadata fails, and for any other commit history, it turns
+# off an auto-merge an earlier head enabled: a push leaves auto-merge on, and a rebase or an added commit can
+# change the update. A run whose head is no longer the head of the pull request changes nothing, and the runs
+# for one pull request run one at a time. On every other pull request both steps are skipped.
+# The step fails when it cannot read the commits of the pull request, its head or whether auto-merge is on.
 # The job reports `auto-merge`, a required status check of the default branch, so a pull request does not
 # merge before the run for its head commit has decided. The Dependabot condition therefore sits on the
 # steps and not on the job, and the trigger carries no filter: the job reports on every pull request.
@@ -28,9 +29,12 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+    concurrency:
+      group: dependabot-auto-merge-${{ github.event.pull_request.number }}
     steps:
       - id: metadata
         if: github.event.pull_request.user.login == 'dependabot[bot]'
+        continue-on-error: true # the deciding step keeps auto-merge off and the check passes (dependabot-auto-merge-test.sh:115)
         uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
       - name: Enable auto-merge for a patch or minor update Dependabot alone wrote, disable it otherwise
         if: github.event.pull_request.user.login == 'dependabot[bot]'
@@ -39,10 +43,13 @@ jobs:
           PR_URL: ${{ github.event.pull_request.html_url }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          METADATA_OUTCOME: ${{ steps.metadata.outcome }}
           UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
         run: |
           eligible=false
-          if [ "$UPDATE_TYPE" = 'version-update:semver-patch' ] || [ "$UPDATE_TYPE" = 'version-update:semver-minor' ]; then
+          if [ "$METADATA_OUTCOME" != 'success' ]; then
+            echo "::warning::fetch-metadata did not classify this pull request (${METADATA_OUTCOME}), so auto-merge stays off"
+          elif [ "$UPDATE_TYPE" = 'version-update:semver-patch' ] || [ "$UPDATE_TYPE" = 'version-update:semver-minor' ]; then
             commits=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/commits?per_page=100")
             eligible=$(printf '%s' "$commits" | jq -r --arg head "$HEAD_SHA" '
               length == 1 and .[0].sha == $head
@@ -53,11 +60,15 @@ jobs:
           if [ "$eligible" = 'true' ]; then
             gh pr merge --auto --merge --match-head-commit "$HEAD_SHA" "$PR_URL"
           else
-            enabled=$(gh pr view "$PR_URL" --json autoMergeRequest --jq '.autoMergeRequest != null')
-            if [ "$enabled" = 'true' ]; then
-              gh pr merge --disable-auto "$PR_URL"
-            elif [ "$enabled" != 'false' ]; then
-              echo "::error::could not read whether auto-merge is enabled: '$enabled'"
+            state=$(gh pr view "$PR_URL" --json headRefOid,autoMergeRequest --jq '[.headRefOid, (.autoMergeRequest != null)] | @tsv')
+            read -r current enabled <<< "$state"
+            if ! [[ "$current" =~ ^[0-9a-f]{40}$ ]] || { [ "$enabled" != 'true' ] && [ "$enabled" != 'false' ]; }; then
+              echo "::error::could not read the head of the pull request and whether auto-merge is enabled: '$state'"
               exit 1
+            fi
+            if [ "$current" != "$HEAD_SHA" ]; then
+              echo "::notice::the head of the pull request is now ${current}, so the run for that head decides"
+            elif [ "$enabled" = 'true' ]; then
+              gh pr merge --disable-auto "$PR_URL"
             fi
           fi
