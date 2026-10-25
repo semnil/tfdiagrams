@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Checks that dependabot-auto-merge.yml reports `auto-merge` on every pull request: only pull_request starts it, with
 # no filter, the job has no condition of its own, and its two steps alone are limited to pull requests dependabot[bot]
-# opened. Then runs the step that decides, against a fake gh that answers the pull request's commit list from a
-# fixture, for each update type and commit history: auto-merge is enabled (pinned to the head) only for a patch or
-# minor whose pull request is one commit at the head that dependabot[bot] wrote, GitHub (web-flow) committed and
-# GitHub verified the signature of; every other case turns an earlier auto-merge off, and a failure to read the
+# opened; a failure of the metadata step lets the job go on to the deciding step. Then runs the step that decides,
+# against a fake gh that answers the pull request's commit list from a fixture, for each metadata outcome, update
+# type and commit history: auto-merge is enabled (pinned to the head) only for a patch or minor fetch-metadata
+# classified whose pull request is one commit at the head that dependabot[bot] wrote, GitHub (web-flow) committed
+# and GitHub verified the signature of; every other case turns an earlier auto-merge off, and a failure to read the
 # commits or the auto-merge state fails the step.
 # WORKFLOW_FILE selects the workflow under test (relative to the repository root, or absolute).
 set -euo pipefail
@@ -38,6 +39,9 @@ expect 'the job has no condition' "$(yq -r '.jobs.auto-merge | has("if")' "$work
 expect 'the job has two steps' "$(yq -r '.jobs.auto-merge.steps | length' "$workflow_path")" '2'
 expect 'the metadata step is limited to Dependabot' "$(yq -r '.jobs.auto-merge.steps[0].if' "$workflow_path")" "$author_condition"
 expect 'the deciding step is limited to Dependabot' "$(yq -r '.jobs.auto-merge.steps[1].if' "$workflow_path")" "$author_condition"
+# The deciding step runs after a failed metadata step only when that failure does not fail the job (dependabot-auto-merge.yml:34).
+expect 'a failed metadata step does not fail the job' "$(yq -r '.jobs.auto-merge.steps[0].continue-on-error' "$workflow_path")" 'true'
+expect 'the deciding step reads the metadata outcome' "$(yq -r '.jobs.auto-merge.steps[1].env.METADATA_OUTCOME' "$workflow_path")" "\${{ steps.metadata.outcome }}"
 
 yq -r '.jobs.auto-merge.steps[1].run' "$workflow_path" > "$work/step.sh"
 mkdir "$work/bin"
@@ -73,13 +77,14 @@ view="pr view $url --json autoMergeRequest --jq .autoMergeRequest != null"
 disable="pr merge --disable-auto $url"
 
 # decide <name> <update type> <commits fixture> <auto-merge state> <commit list fails> <exit code> <gh calls...>
+# METADATA_OUTCOME (default success) set before the call gives the outcome of the metadata step.
 decide() {
   local name=$1 type=$2 commits=$3 enabled=$4 fail=$5 want_rc=$6 rc=0
   shift 6
   : > "$work/log"
   STUB_LOG="$work/log" STUB_ENABLED="$enabled" STUB_COMMITS="$work/$commits.json" STUB_COMMITS_FAIL="$fail" \
     PATH="$work/bin:$PATH" GH_TOKEN=x GITHUB_REPOSITORY=o/r PR_URL=$url PR_NUMBER=7 HEAD_SHA=$head \
-    UPDATE_TYPE="$type" bash -e "$work/step.sh" > "$work/out" 2>&1 || rc=$?
+    METADATA_OUTCOME="${METADATA_OUTCOME:-success}" UPDATE_TYPE="$type" bash -e "$work/step.sh" > "$work/out" 2>&1 || rc=$?
   expect "$name: exit code" "$rc" "$want_rc"
   expect "$name: gh calls" "$(paste -sd'|' - < "$work/log")" "$(printf '%s\n' "$@" | paste -sd'|' -)"
 }
@@ -99,6 +104,9 @@ decide 'major, auto-merge on' $major single-bot true 0 0 "$view" "$disable"
 decide 'no update type, auto-merge off' '' single-bot false 0 0 "$view"
 decide 'unknown update type, auto-merge state unreadable' other single-bot unreadable 0 1 "$view"
 decide 'patch, commit list unreadable' $patch single-bot false 1 1 "$api"
+METADATA_OUTCOME=failure decide 'metadata step failed, auto-merge on' '' single-bot true 0 0 "$view" "$disable"
+METADATA_OUTCOME=failure decide 'metadata step failed, auto-merge off' '' single-bot false 0 0 "$view"
+METADATA_OUTCOME=failure decide 'metadata step failed with an update type left, auto-merge on' $patch single-bot true 0 0 "$view" "$disable"
 
 echo "${count} checks, ${failures} failed"
 [ "$failures" -eq 0 ]
