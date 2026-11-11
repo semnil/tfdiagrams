@@ -28,3 +28,6 @@ CLI `tfdot` turns `terraform graph` DOT output into an image:
 
 - The version lives in two files that must stay in sync: `version` in `pyproject.toml` and the `ARG TFDIAGRAMS_VERSION` default in `Dockerfile`. `tests/test_tfdiagrams.py::test_dockerfile_default_version` fails if they drift — bump both together. For the full release flow, see README.md "Release".
 - Opening a PR triggers the `Example` workflow (`.github/workflows/workflow.yml`): it rebuilds `example/count/graph.png` from your branch and pushes the update back onto the branch (commit and push are skipped for Dependabot).
+- `release.yml` keeps its file name and its `release` environment: the PyPI trusted publisher names both, and renaming either stops the upload.
+- Rebase merging is disabled in the repository settings. `tag-release.yml` finds a version bump by comparing the tested commit with its first parent, and relies on that parent being the previous tip of master.
+- Closed decisions (what was chosen and what was turned down) are in `docs/decisions/`.
