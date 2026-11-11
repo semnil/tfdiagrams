@@ -9,6 +9,9 @@
 # signature of; every other case turns an earlier auto-merge off, except a run whose head is no longer the head of
 # the pull request, which changes nothing; and a failure to read the commits, the head or the auto-merge state fails
 # the step.
+# A gh call that fails is made again after a ten-second wait, which a fake sleep records in place of waiting, and the
+# step fails on a call whose third attempt failed; what a failed attempt printed does not reach the decision.
+# An attempt to turn auto-merge off after a wait follows a fresh read of the head and of auto-merge.
 # WORKFLOW_FILE selects the workflow under test (relative to the repository root, or absolute).
 set -euo pipefail
 
@@ -41,7 +44,7 @@ expect 'the job has no condition' "$(yq -r '.jobs.auto-merge | has("if")' "$work
 expect 'the job has two steps' "$(yq -r '.jobs.auto-merge.steps | length' "$workflow_path")" '2'
 expect 'the metadata step is limited to Dependabot' "$(yq -r '.jobs.auto-merge.steps[0].if' "$workflow_path")" "$author_condition"
 expect 'the deciding step is limited to Dependabot' "$(yq -r '.jobs.auto-merge.steps[1].if' "$workflow_path")" "$author_condition"
-# The deciding step runs after a failed metadata step only when that failure does not fail the job (dependabot-auto-merge.yml:37).
+# The deciding step runs after a failed metadata step only when that failure does not fail the job (dependabot-auto-merge.yml:40).
 expect 'a failed metadata step does not fail the job' "$(yq -r '.jobs.auto-merge.steps[0].continue-on-error' "$workflow_path")" 'true'
 expect 'the deciding step reads the metadata outcome' "$(yq -r '.jobs.auto-merge.steps[1].env.METADATA_OUTCOME' "$workflow_path")" "\${{ steps.metadata.outcome }}"
 expect 'the runs for one pull request share a concurrency group' "$(yq -r '.jobs.auto-merge.concurrency.group' "$workflow_path")" "dependabot-auto-merge-\${{ github.event.pull_request.number }}"
@@ -51,16 +54,43 @@ mkdir "$work/bin"
 cat > "$work/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 echo "$*" >> "$STUB_LOG"
+kind=
+[ "$1" = api ] && kind=api
+[ "$1 $2" = 'pr view' ] && kind=view
+[ "$1 $2 $3" = 'pr merge --auto' ] && kind=enable
+[ "$1 $2 $3" = 'pr merge --disable-auto' ] && kind=disable
+# A call of a kind fails while $STUB_FAILS/<kind> counts above zero, the way gh fails on an error answer: the body
+# on stdout, its reading of it on stderr.
+left=$(cat "$STUB_FAILS/$kind" 2>/dev/null || echo 0)
+if [ "$left" -gt 0 ]; then
+  echo $((left - 1)) > "$STUB_FAILS/$kind"
+  echo '{"message":"Server Error"}'
+  echo "stub gh: the $kind call failed" >&2
+  exit 1
+fi
 if [ "$1" = api ]; then
   [ "${STUB_COMMITS_FAIL:-0}" = 1 ] && { echo 'HTTP 502' >&2; exit 1; }
   cat "$STUB_COMMITS"; exit 0
 fi
 if [ "$1 $2" = 'pr view' ]; then
   [ "${STUB_VIEW_FAIL:-0}" = 1 ] && { echo 'HTTP 502' >&2; exit 1; }
+  # Once the step has waited, the pull request answers what the case put under $STUB_FAILS.
+  if [ -e "$STUB_FAILS/waited" ]; then
+    [ -e "$STUB_FAILS/after-view-fail" ] && { echo 'HTTP 502' >&2; exit 1; }
+    [ -e "$STUB_FAILS/after-head" ] && STUB_HEAD=$(cat "$STUB_FAILS/after-head")
+    [ -e "$STUB_FAILS/after-enabled" ] && STUB_ENABLED=$(cat "$STUB_FAILS/after-enabled")
+  fi
   printf '%s\t%s\n' "$STUB_HEAD" "$STUB_ENABLED"
 fi
 EOF
 chmod +x "$work/bin/gh"
+# The waits the step asks for are recorded beside the gh calls and take no time.
+cat > "$work/bin/sleep" <<'SLEEP'
+#!/usr/bin/env bash
+echo "sleep $*" >> "$STUB_LOG"
+: > "$STUB_FAILS/waited"
+SLEEP
+chmod +x "$work/bin/sleep"
 
 url=https://github.com/o/r/pull/7
 head=0123456789abcdef0123456789abcdef01234567
@@ -81,15 +111,25 @@ api="api repos/o/r/pulls/7/commits?per_page=100"
 enable="pr merge --auto --merge --match-head-commit $head $url"
 view="pr view $url --json headRefOid,autoMergeRequest --jq [.headRefOid, (.autoMergeRequest != null)] | @tsv"
 disable="pr merge --disable-auto $url"
+wait='sleep 10'
 
 # decide <name> <update type> <commits fixture> <auto-merge state> <commit list fails> <exit code> <gh calls...>
 # METADATA_OUTCOME (default success), CURRENT_HEAD (default the event's head) and VIEW_FAIL (default 0) set before
 # the call give the outcome of the metadata step, the head the pull request has now, and a failing pr view.
+# FAILS, as <call>=<count> words (api, view, enable, disable), makes the first <count> calls of that kind fail.
+# HEAD_AFTER_WAIT, ENABLED_AFTER_WAIT and VIEW_FAIL_AFTER_WAIT=1 give the head, the auto-merge state and a failing
+# pr view the pull request answers once the step has waited.
 decide() {
-  local name=$1 type=$2 commits=$3 enabled=$4 fail=$5 want_rc=$6 rc=0
+  local name=$1 type=$2 commits=$3 enabled=$4 fail=$5 want_rc=$6 rc=0 pair
   shift 6
   : > "$work/log"
-  STUB_LOG="$work/log" STUB_ENABLED="$enabled" STUB_COMMITS="$work/$commits.json" STUB_COMMITS_FAIL="$fail" \
+  rm -rf "$work/fails"
+  mkdir "$work/fails"
+  for pair in ${FAILS:-}; do echo "${pair#*=}" > "$work/fails/${pair%%=*}"; done
+  [ -z "${HEAD_AFTER_WAIT:-}" ] || echo "$HEAD_AFTER_WAIT" > "$work/fails/after-head"
+  [ -z "${ENABLED_AFTER_WAIT:-}" ] || echo "$ENABLED_AFTER_WAIT" > "$work/fails/after-enabled"
+  [ "${VIEW_FAIL_AFTER_WAIT:-0}" != 1 ] || : > "$work/fails/after-view-fail"
+  STUB_LOG="$work/log" STUB_FAILS="$work/fails" STUB_ENABLED="$enabled" STUB_COMMITS="$work/$commits.json" STUB_COMMITS_FAIL="$fail" \
     STUB_HEAD="${CURRENT_HEAD:-$head}" STUB_VIEW_FAIL="${VIEW_FAIL:-0}" \
     PATH="$work/bin:$PATH" GH_TOKEN=x GITHUB_REPOSITORY=o/r PR_URL=$url PR_NUMBER=7 HEAD_SHA=$head \
     METADATA_OUTCOME="${METADATA_OUTCOME:-success}" UPDATE_TYPE="$type" bash -e "$work/step.sh" > "$work/out" 2>&1 || rc=$?
@@ -111,7 +151,7 @@ decide 'patch, two commits with the head listed first' $patch two-head-first tru
 decide 'major, auto-merge on' $major single-bot true 0 0 "$view" "$disable"
 decide 'no update type, auto-merge off' '' single-bot false 0 0 "$view"
 decide 'unknown update type, auto-merge state unreadable' other single-bot unreadable 0 1 "$view"
-decide 'patch, commit list unreadable' $patch single-bot false 1 1 "$api"
+decide 'patch, commit list unreadable' $patch single-bot false 1 1 "$api" "$wait" "$api" "$wait" "$api"
 METADATA_OUTCOME=failure decide 'metadata step failed, auto-merge on' '' single-bot true 0 0 "$view" "$disable"
 METADATA_OUTCOME=failure decide 'metadata step failed, auto-merge off' '' single-bot false 0 0 "$view"
 METADATA_OUTCOME=failure decide 'metadata step failed with an update type left, auto-merge on' $patch single-bot true 0 0 "$view" "$disable"
@@ -119,7 +159,29 @@ METADATA_OUTCOME=failure CURRENT_HEAD=$other decide 'metadata step failed, the h
 CURRENT_HEAD=$other decide 'patch, the head has moved to a newer Dependabot commit' $patch single-other-sha true 0 0 "$api" "$view"
 CURRENT_HEAD=$other decide 'major, the head has moved' $major single-bot true 0 0 "$view"
 CURRENT_HEAD=unreadable decide 'major, head unreadable' $major single-bot true 0 1 "$view"
-VIEW_FAIL=1 decide 'major, pr view fails' $major single-bot true 0 1 "$view"
+VIEW_FAIL=1 decide 'major, pr view fails' $major single-bot true 0 1 "$view" "$wait" "$view" "$wait" "$view"
+
+# Each of the four gh calls is made again at its own place in the step, so each has its own rows.
+FAILS=api=1 decide 'patch, the commit list fails once' $patch single-bot false 0 0 "$api" "$wait" "$api" "$enable"
+FAILS=enable=1 decide 'patch, enabling fails once' $patch single-bot false 0 0 "$api" "$enable" "$wait" "$enable"
+expect 'patch, enabling fails once: the failed attempt is named' "$(grep -c '^::warning::attempt 1 of 3 failed' "$work/out")" 1
+FAILS=enable=2 decide 'patch, enabling fails twice' $patch single-bot false 0 0 "$api" "$enable" "$wait" "$enable" "$wait" "$enable"
+expect 'patch, enabling fails twice: the second failed attempt is named' "$(grep -c '^::warning::attempt 2 of 3 failed' "$work/out")" 1
+expect 'patch, enabling fails twice: nothing but the warnings and the errors of gh is printed' "$(grep -c -v -e '^::warning::attempt' -e '^stub gh: ' "$work/out")" 0
+FAILS=view=1 decide 'major, pr view fails once, auto-merge on' $major single-bot true 0 0 "$view" "$wait" "$view" "$disable"
+FAILS=disable=1 decide 'major, disabling fails once' $major single-bot true 0 0 "$view" "$disable" "$wait" "$view" "$disable"
+FAILS=enable=9 decide 'patch, enabling fails every time' $patch single-bot false 0 1 "$api" "$enable" "$wait" "$enable" "$wait" "$enable"
+FAILS=disable=9 decide 'major, disabling fails every time' $major single-bot true 0 1 "$view" "$disable" "$wait" "$view" "$disable" "$wait" "$view" "$disable"
+FAILS='api=1 view=1' decide 'patch, one commit someone else wrote, both reads fail once' $patch single-human true 0 0 "$api" "$wait" "$api" "$view" "$wait" "$view" "$disable"
+
+# An attempt to turn auto-merge off after a wait follows a fresh read of the head and of auto-merge.
+FAILS=disable=2 decide 'major, disabling fails twice' $major single-bot true 0 0 "$view" "$disable" "$wait" "$view" "$disable" "$wait" "$view" "$disable"
+expect 'major, disabling fails twice: nothing but the warnings and the errors of gh is printed' "$(grep -c -v -e '^::warning::attempt' -e '^stub gh: ' "$work/out")" 0
+FAILS=disable=1 HEAD_AFTER_WAIT=$other decide 'major, disabling fails once and the head moves during the wait' $major single-bot true 0 0 "$view" "$disable" "$wait" "$view"
+expect 'major, disabling fails once and the head moves during the wait: the newer head is named' "$(grep -c "^::notice::the head of the pull request is now $other" "$work/out")" 1
+FAILS=disable=1 ENABLED_AFTER_WAIT=false decide 'major, disabling fails once and auto-merge is off after the wait' $major single-bot true 0 0 "$view" "$disable" "$wait" "$view"
+FAILS=disable=1 VIEW_FAIL_AFTER_WAIT=1 decide 'major, disabling fails once and pr view fails after the wait' $major single-bot true 0 1 "$view" "$disable" "$wait" "$view" "$wait" "$view" "$wait" "$view"
+FAILS=disable=1 ENABLED_AFTER_WAIT=unreadable decide 'major, disabling fails once and the state is unreadable after the wait' $major single-bot true 0 1 "$view" "$disable" "$wait" "$view"
 
 echo "${count} checks, ${failures} failed"
 [ "$failures" -eq 0 ]
