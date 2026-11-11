@@ -3,6 +3,8 @@
 # and asserts which fixtures pass and which fail with which reason.
 # A gh api call that fails is made again after a ten-second wait, which a fake sleep records in place of waiting,
 # and the fetch step fails on a call whose third attempt failed; what a failed attempt printed stays out of the file.
+# A path with a control character and a file with a YAML anchor fail the fetch step, a path that starts
+# with - is read as a path, and nothing a fixture wrote starts a line of what the steps print.
 # WORKFLOW_FILE and WORKFLOW_JOB select the workflow under test (relative to the repository root, or absolute).
 # WORKFLOW_CHECK_STEP=absent declares a workflow without the pin check step; the pin cases are then skipped.
 # Otherwise a missing pin check step fails the test.
@@ -305,6 +307,73 @@ fi
 retry_case "the head tree fails every time" head=9 fail "failed three times" "head wait10 head wait10 head"
 retry_case "the base tree fails every time" base=9 fail "failed three times" "head base wait10 base wait10 base"
 retry_case "a blob fails every time" blob=9 fail "failed three times" "head base blob wait10 blob wait10 blob"
+
+# no_line <name> <prefix>: no line of what the last run printed starts with the prefix
+no_line() {
+  if grep -q "^$2" <<< "$last_out"; then
+    failures=$((failures + 1))
+    echo "FAIL $1: a line of the output starts with $2"
+  else
+    echo "ok   $1"
+  fi
+}
+
+new_case
+layout
+file .github/workflows/w.yml "$(printf 'name: w\non: push\njobs:\n  a:\n    runs-on: ubuntu-latest\n    strategy:\n      matrix:\n        include:\n          - &s\n            uses: someone/action@main\n    steps:\n      - uses: actions/checkout@%s # v5.1.0\n      - *s\n' "$sha")"
+run "workflow step aliased from a matrix entry, beside a pinned step" fail "must not use YAML anchors"
+
+new_case
+layout
+file .github/workflows/w.yml "$(printf 'name: w\non: push\nenv:\n  A: &a x\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@%s # v5.1.0\n' "$sha")"
+run "workflow with an anchor nothing refers to" fail "must not use YAML anchors"
+
+new_case
+layout
+file .github/workflows/w.yml "$(workflow_yml "")"
+file .github/actions/a/action.yml "$(composite_yml "    - &s
+      run: echo ok
+      shell: bash
+    - *s
+")"
+run "composite action with an aliased step" fail "must not use YAML anchors"
+
+new_case
+layout
+file .github/workflows/w.yml "$(workflow_yml "")"
+file 'docs/a\u0001b.txt' x
+run "path with a control character" fail "paths with a control character"
+
+new_case
+layout
+file .github/workflows/w.yml "$(workflow_yml "")"
+file 'docs/a\n::notice::spoofed' x
+run "path with a line break" fail "paths with a control character"
+no_line "path with a line break: the path starts no line of the output" "::notice::"
+
+new_case
+layout
+file .github/workflows/w.yml "$(workflow_yml "")"
+file -x/action.yml "$(composite_yml "    - uses: actions/checkout@$sha # v5.1.0
+")"
+run "action file under a directory whose name starts with -" pass
+
+if ! skip_without_check "unpinned action under a directory whose name starts with -"; then
+  new_case
+  layout
+  file .github/workflows/w.yml "$(workflow_yml "")"
+  file -x/action.yml "$(composite_yml "    - uses: actions/checkout@v5
+")"
+  run "unpinned action under a directory whose name starts with -" fail "uses must be @<40-char commit SHA>"
+fi
+
+if ! skip_without_check "unpinned uses holding a line break"; then
+  new_case
+  layout
+  file .github/workflows/w.yml "$(printf 'name: w\non: push\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: "actions/checkout@v5\\n::notice::spoofed"\n')"
+  run "unpinned uses holding a line break" fail "uses must be @<40-char commit SHA>"
+  no_line "unpinned uses holding a line break: the value starts no line of the output" "::notice::"
+fi
 
 echo "${count} cases, ${failures} failed, ${skipped} skipped"
 if [ "$failures" -ne 0 ]; then
