@@ -10,9 +10,10 @@ name: Workflow checks
 # resolves against the runner workspace. This file itself must be identical to the default branch (PROTECTED_PATTERN).
 # Each gh api call is made up to three times, ten seconds apart, and the fetch step fails on a call whose third
 # attempt failed.
-# A path with a control character, and a workflow or action file that uses a YAML anchor, fail the
-# check: an alias is read where its anchor is, which is not where a uses is checked. A path that starts with - is
-# read as a path, and the uses values the check prints are JSON-encoded, so no value starts a line of the log.
+# A path with a control character or ##[, and a workflow or action file that uses a YAML anchor, fail the check:
+# an alias is read where its anchor is, which is not where a uses is checked. A path that starts with - is read as
+# a path. What the checks print of a pull request goes behind a fixed prefix with every ##[ broken apart, so the
+# runner reads none of it as a workflow command.
 on:
   pull_request_target:
 
@@ -49,6 +50,11 @@ jobs:
             echo "::error::gh api ${*: -1} failed three times"
             return 1
           }
+          # Prints a file of findings so that the runner reads none of it as a workflow command: each line goes
+          # behind a fixed prefix, which keeps :: off the start of the line, and every ##[ is broken apart.
+          show() {
+            sed -e 's/##\[/## [/g' -e 's/^/  | /' "$1"
+          }
           src="$RUNNER_TEMP/pr-files"
           mkdir -p "$src"
           fetch "$RUNNER_TEMP/tree.json" "repos/${GITHUB_REPOSITORY}/git/trees/${HEAD_SHA}?recursive=1"
@@ -57,10 +63,10 @@ jobs:
             echo "::error::git tree listing of ${HEAD_SHA} is truncated (truncated=${truncated})"
             exit 1
           fi
-          yq -p=json -o=tsv '.tree[] | select(.path | test("[\x00-\x1f\x7f]")) | (.path | @json)' "$RUNNER_TEMP/tree.json" > "$RUNNER_TEMP/control-paths.tsv"
+          yq -p=json -o=tsv '.tree[] | select(.path | (test("[\x00-\x1f\x7f]") or contains("##["))) | (.path | @json)' "$RUNNER_TEMP/tree.json" > "$RUNNER_TEMP/control-paths.tsv"
           if [ -s "$RUNNER_TEMP/control-paths.tsv" ]; then
-            echo "::error::paths with a control character are rejected (a line break in a path would start a line of its own in this log)"
-            cat "$RUNNER_TEMP/control-paths.tsv"
+            echo "::error::paths with a control character or a workflow command prefix are rejected (the runner reads a line break, and that prefix anywhere in a line, as the start of a workflow command)"
+            show "$RUNNER_TEMP/control-paths.tsv"
             exit 1
           fi
           fetch "$RUNNER_TEMP/base-tree.json" "repos/${GITHUB_REPOSITORY}/git/trees/${GITHUB_SHA}?recursive=1"
@@ -84,28 +90,28 @@ jobs:
           yq -p=json -o=tsv '.tree[] | select(.path | (test("(?i)(^|/)action[.]ya?ml$") and (test("(^|/)action[.]ya?ml$") | not))) | .path' "$RUNNER_TEMP/tree.json" > "$RUNNER_TEMP/non-canonical.tsv"
           if [ -s "$RUNNER_TEMP/non-canonical.tsv" ]; then
             echo "::error::action file names must be lowercase action.yml / action.yaml (a case-insensitive file system opens these as action.yml)"
-            cat "$RUNNER_TEMP/non-canonical.tsv"
+            show "$RUNNER_TEMP/non-canonical.tsv"
             exit 1
           fi
           targets='.tree[] | select(.path | (test("^[.]github/workflows/[^/]+[.]ya?ml$") or test("(^|/)action[.]ya?ml$")))'
           yq -p=json -o=tsv "${targets} | select(.type != \"blob\" or (.mode != \"100644\" and .mode != \"100755\")) | [.path, .type, .mode]" "$RUNNER_TEMP/tree.json" > "$RUNNER_TEMP/non-regular.tsv"
           if [ -s "$RUNNER_TEMP/non-regular.tsv" ]; then
             echo "::error::workflow and action files must be regular files (symlinks and other entries are rejected)"
-            cat "$RUNNER_TEMP/non-regular.tsv"
+            show "$RUNNER_TEMP/non-regular.tsv"
             exit 1
           fi
-          yq -p=json -o=tsv "${targets} | [.path, .sha]" "$RUNNER_TEMP/tree.json" > "$RUNNER_TEMP/files.tsv"
+          yq -p=json "${targets} | .path + \"	\" + .sha" "$RUNNER_TEMP/tree.json" > "$RUNNER_TEMP/files.tsv"
           while IFS=$'\t' read -r path blob; do
             mkdir -p "$src/$(dirname -- "$path")"
             fetch "$src/$path" -H "Accept: application/vnd.github.raw" "repos/${GITHUB_REPOSITORY}/git/blobs/${blob}"
           done < "$RUNNER_TEMP/files.tsv"
           : > "$RUNNER_TEMP/anchors.txt"
           while IFS=$'\t' read -r path _; do
-            (cd "$src" && yq '.. | select(anchor != "") | filename + ":" + (line | tostring)' -- "$path") >> "$RUNNER_TEMP/anchors.txt"
+            (cd "$src" && yq '... | select(anchor != "") | filename + ":" + (line | tostring)' -- "$path") >> "$RUNNER_TEMP/anchors.txt"
           done < "$RUNNER_TEMP/files.tsv"
           if [ -s "$RUNNER_TEMP/anchors.txt" ]; then
             echo "::error::workflow and action files must not use YAML anchors (each uses is checked where it is written, and an alias is read where its anchor is)"
-            cat "$RUNNER_TEMP/anchors.txt"
+            show "$RUNNER_TEMP/anchors.txt"
             exit 1
           fi
           yq -p=json -o=tsv '.tree[] | select(.mode == "160000" or .mode == "120000") | [(.path | split("/") | map((select(test("^[\x00-\x7f]*$")) | downcase) // "*") | join("/")), .path, .mode]' "$RUNNER_TEMP/tree.json" > "$RUNNER_TEMP/links.tsv"
@@ -161,7 +167,7 @@ jobs:
           done < "$RUNNER_TEMP/local-refs.tsv"
           if [ -s "$RUNNER_TEMP/bad-local.txt" ]; then
             echo '::error::steps must reference same-repository actions with $/ (./ in a step resolves against the runner workspace), and local ./ and $/ uses must be a canonical path of A-Z a-z 0-9 . _ - characters that does not go through a symlink or into a submodule, compared case-insensitively (the referenced action.yml would not be checked)'
-            cat "$RUNNER_TEMP/bad-local.txt"
+            show "$RUNNER_TEMP/bad-local.txt"
             exit 1
           fi
 
@@ -171,6 +177,11 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           cd "$RUNNER_TEMP/pr-files"
+          # Prints a file of findings so that the runner reads none of it as a workflow command: each line goes
+          # behind a fixed prefix, which keeps :: off the start of the line, and every ##[ is broken apart.
+          show() {
+            sed -e 's/##\[/## [/g' -e 's/^/  | /' "$1"
+          }
           workflows=()
           actions=()
           while IFS=$'\t' read -r path _; do
@@ -198,6 +209,6 @@ jobs:
           fi
           if [ -s "$RUNNER_TEMP/unpinned.txt" ]; then
             echo "::error::uses must be @<40-char commit SHA> with a # vX.Y.Z comment on the same line"
-            cat "$RUNNER_TEMP/unpinned.txt"
+            show "$RUNNER_TEMP/unpinned.txt"
             exit 1
           fi
