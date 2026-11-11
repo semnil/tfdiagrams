@@ -8,6 +8,8 @@ name: Workflow checks
 # action.yaml must be a 40-character commit SHA with a # vX.Y.Z comment on the same line. Same-repository references
 # are exempt: $/ in steps, and ./ or $/ for reusable workflows in jobs.<id>.uses. A step must not use ./, which
 # resolves against the runner workspace. This file itself must be identical to the default branch (PROTECTED_PATTERN).
+# Each gh api call is made up to three times, ten seconds apart, and the fetch step fails on a call whose third
+# attempt failed.
 on:
   pull_request_target:
 
@@ -26,15 +28,33 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PROTECTED_PATTERN: '^\.github/workflows/workflow-checks\.yml$'
         run: |
+          # Makes a gh api call up to three times, ten seconds apart, writes what the attempt that succeeded
+          # printed to the file named first, and fails when the third attempt failed.
+          fetch() {
+            local dest="$1" attempt
+            shift
+            for attempt in 1 2 3; do
+              if gh api "$@" > "$RUNNER_TEMP/fetch.part"; then
+                mv "$RUNNER_TEMP/fetch.part" "$dest"
+                return 0
+              fi
+              if [ "$attempt" -lt 3 ]; then
+                echo "::warning::attempt ${attempt} of 3 failed, running it again in 10 seconds: gh api ${*: -1}"
+                sleep 10
+              fi
+            done
+            echo "::error::gh api ${*: -1} failed three times"
+            return 1
+          }
           src="$RUNNER_TEMP/pr-files"
           mkdir -p "$src"
-          gh api "repos/${GITHUB_REPOSITORY}/git/trees/${HEAD_SHA}?recursive=1" > "$RUNNER_TEMP/tree.json"
+          fetch "$RUNNER_TEMP/tree.json" "repos/${GITHUB_REPOSITORY}/git/trees/${HEAD_SHA}?recursive=1"
           truncated=$(yq -p=json '.truncated' "$RUNNER_TEMP/tree.json")
           if [ "$truncated" != "false" ]; then
             echo "::error::git tree listing of ${HEAD_SHA} is truncated (truncated=${truncated})"
             exit 1
           fi
-          gh api "repos/${GITHUB_REPOSITORY}/git/trees/${GITHUB_SHA}?recursive=1" > "$RUNNER_TEMP/base-tree.json"
+          fetch "$RUNNER_TEMP/base-tree.json" "repos/${GITHUB_REPOSITORY}/git/trees/${GITHUB_SHA}?recursive=1"
           base_truncated=$(yq -p=json '.truncated' "$RUNNER_TEMP/base-tree.json")
           if [ "$base_truncated" != "false" ]; then
             echo "::error::git tree listing of ${GITHUB_SHA} is truncated (truncated=${base_truncated})"
@@ -68,7 +88,7 @@ jobs:
           yq -p=json -o=tsv "${targets} | [.path, .sha]" "$RUNNER_TEMP/tree.json" > "$RUNNER_TEMP/files.tsv"
           while IFS=$'\t' read -r path blob; do
             mkdir -p "$src/$(dirname "$path")"
-            gh api -H "Accept: application/vnd.github.raw" "repos/${GITHUB_REPOSITORY}/git/blobs/${blob}" > "$src/$path"
+            fetch "$src/$path" -H "Accept: application/vnd.github.raw" "repos/${GITHUB_REPOSITORY}/git/blobs/${blob}"
           done < "$RUNNER_TEMP/files.tsv"
           yq -p=json -o=tsv '.tree[] | select(.mode == "160000" or .mode == "120000") | [(.path | split("/") | map((select(test("^[\x00-\x7f]*$")) | downcase) // "*") | join("/")), .path, .mode]' "$RUNNER_TEMP/tree.json" > "$RUNNER_TEMP/links.tsv"
           : > "$RUNNER_TEMP/local-refs.tsv"

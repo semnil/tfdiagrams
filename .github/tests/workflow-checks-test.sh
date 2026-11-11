@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Runs the fetch and check steps of the action pin workflow against fixture git trees served by a fake gh,
 # and asserts which fixtures pass and which fail with which reason.
+# A gh api call that fails is made again after a ten-second wait, which a fake sleep records in place of waiting,
+# and the fetch step fails on a call whose third attempt failed; what a failed attempt printed stays out of the file.
 # WORKFLOW_FILE and WORKFLOW_JOB select the workflow under test (relative to the repository root, or absolute).
 # WORKFLOW_CHECK_STEP=absent declares a workflow without the pin check step; the pin cases are then skipped.
 # Otherwise a missing pin check step fails the test.
@@ -84,17 +86,38 @@ tree_json() {
 }
 
 # run <name> <pass|fail> [reason substring]
+# FAILS, as <call>=<count> words (head, base, blob), makes the first <count> gh api calls of that kind fail. The
+# calls by kind and the waits of the run are left in $dir/calls, and what the steps printed in last_out.
 run() {
-  local name="$1" expected="$2" reason="${3:-}" out status got
+  local name="$1" expected="$2" reason="${3:-}" out status got pair
   cp "$workflow_path" "$dir/blobs/chk"
   { cat "$workflow_path"; printf '\n# changed\n'; } > "$dir/blobs/chk2"
   printf '%s\t100644\tblob\tchk\n' "$protected_path" > "$dir/base-entries"
   { cat "$dir/entries"; printf '%s\t100644\tblob\t%s\n' "$protected_path" "$head_check"; } > "$dir/head-entries"
   tree_json "$dir/base-entries" > "$dir/base-tree.json"
   tree_json "$dir/head-entries" > "$dir/head-tree.json"
+  mkdir -p "$dir/fails"
+  : > "$dir/calls"
+  for pair in ${FAILS:-}; do echo "${pair#*=}" > "$dir/fails/${pair%%=*}"; done
   cat > "$dir/bin/gh" <<EOF
 #!/usr/bin/env bash
 last="\${@: -1}"
+kind=other
+case "\$last" in
+  */git/trees/base\?*) kind=base ;;
+  */git/trees/head\?*) kind=head ;;
+  */git/blobs/*) kind=blob ;;
+esac
+echo "\$kind" >> "$dir/calls"
+# A call of a kind fails while the count in fails/<kind> is above zero, the way gh fails on an error answer: the
+# body on stdout, its reading of it on stderr.
+left=\$(cat "$dir/fails/\$kind" 2>/dev/null || echo 0)
+if [ "\$left" -gt 0 ]; then
+  echo \$((left - 1)) > "$dir/fails/\$kind"
+  echo '{"message":"Server Error"}'
+  echo "stub gh: the \$kind call failed" >&2
+  exit 1
+fi
 case "\$last" in
   */git/trees/base\?*) cat "$dir/base-tree.json" ;;
   */git/trees/head\?*) cat "$dir/head-tree.json" ;;
@@ -102,13 +125,19 @@ case "\$last" in
   *) echo "unexpected gh call: \$*" >&2; exit 2 ;;
 esac
 EOF
-  chmod +x "$dir/bin/gh"
+  # The waits the step asks for are recorded beside the gh calls and take no time.
+  cat > "$dir/bin/sleep" <<EOF
+#!/usr/bin/env bash
+echo "wait\$1" >> "$dir/calls"
+EOF
+  chmod +x "$dir/bin/gh" "$dir/bin/sleep"
   if out=$(PATH="$dir/bin:$PATH" RUNNER_TEMP="$dir/runner" GITHUB_REPOSITORY=owner/repo HEAD_SHA=head GITHUB_SHA=base \
     GH_TOKEN=unused PROTECTED_PATTERN="$pattern" bash -e -o pipefail -c "${fetch}"$'\n'"${check}" 2>&1 < /dev/null); then
     status=0
   else
     status=$?
   fi
+  last_out="$out"
   if [ "$status" -eq 0 ]; then
     got=pass
   elif [[ "$out" != *"::error::"* ]]; then
@@ -240,6 +269,42 @@ file .github/actions/u/Action.yml "$(composite_yml "    - run: echo ok
       shell: bash
 ")"
 run "action file name that is not lowercase" fail "must be lowercase"
+
+# calls <name> <the gh api calls by kind and the waits of the last run, in order>
+calls() {
+  local got
+  got=$(paste -sd' ' - < "$dir/calls")
+  if [ "$got" = "$2" ]; then
+    echo "ok   $1"
+  else
+    failures=$((failures + 1))
+    echo "FAIL $1: expected \"$2\", got \"$got\""
+  fi
+}
+# retry_case <name> <FAILS> <pass|fail> <reason substring> <calls>
+retry_case() {
+  new_case
+  layout
+  file .github/workflows/w.yml "$(workflow_yml "")"
+  FAILS="$2" run "$1" "$3" "$4"
+  calls "$1: gh api calls and waits" "$5"
+}
+# Each of the three gh api calls goes through the step's fetch on its own line, so each has its own cases. The
+# fixture has three files to fetch: the composite action, w.yml and the check's own workflow.
+retry_case "the head tree fails once" head=1 pass "" "head wait10 head base blob blob blob"
+retry_case "the base tree fails once" base=1 pass "" "head base wait10 base blob blob blob"
+retry_case "a blob fails once" blob=1 pass "" "head base blob wait10 blob blob blob"
+retry_case "the head tree fails twice" head=2 pass "" "head wait10 head wait10 head base blob blob blob"
+warnings=$(awk '/^::warning::attempt [12] of 3 failed, running it again in 10 seconds: gh api / { n++ } END { print n + 0 }' <<< "$last_out")
+if [ "$warnings" = 2 ]; then
+  echo "ok   the head tree fails twice: each failed attempt is named"
+else
+  failures=$((failures + 1))
+  echo "FAIL the head tree fails twice: expected 2 warnings, got ${warnings}"
+fi
+retry_case "the head tree fails every time" head=9 fail "failed three times" "head wait10 head wait10 head"
+retry_case "the base tree fails every time" base=9 fail "failed three times" "head base wait10 base wait10 base"
+retry_case "a blob fails every time" blob=9 fail "failed three times" "head base blob wait10 blob wait10 blob"
 
 echo "${count} cases, ${failures} failed, ${skipped} skipped"
 if [ "$failures" -ne 0 ]; then
