@@ -4,14 +4,6 @@
 
 tfdiagrams の版をどうリリースするかについて閉じた判断と、却下した案を持つ。流れそのものは [README.ja.md](../../README.ja.md) の「リリース」にある。この文書は、その形にした理由を持つ。
 
-## 下書きの Release の公開をリリースの関門にする
-
-- **決定** (2026-10-20): 版上げをマージしても、コミットにタグを付けて GitHub Release の下書きを作るだけにする。その下書きを人が公開することが、PyPI へのアップロードと Docker イメージの push を始める。
-- **却下した案**: 版上げをマージした時点で公開する。
-- **これに依存しているもの**:
-  - `release.yml` は、ファイル名と `release` environment を変えない。PyPI の trusted publisher がこの 2 つを名指ししているためで、どちらかを変えるとアップロードが止まる。
-  - タグが検査済みのコミットに既にある状態で `tag-release.yml` を再実行すると、`gh release list` で下書きを探す。この一覧が、ワークフローのトークン (`contents: write`) に下書きの Release を含むことを前提にしている。
-
 ## 版上げで Dockerfile の既定値も上げる
 
 - **決定** (2026-10-20): `pyproject.toml` の `version` を上げる pull request で、`Dockerfile` の `TFDIAGRAMS_VERSION` の既定値も新しい版にする。2 つが違うと `tests/test_tfdiagrams.py::test_dockerfile_default_version` が失敗する。

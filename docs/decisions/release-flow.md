@@ -4,14 +4,6 @@
 
 Closed decisions about how a version of tfdiagrams is released, with the alternatives that were turned down. The flow itself is in [README.md](../../README.md) "Release"; this document holds why it has that shape.
 
-## Publishing the draft Release is the release gate
-
-- **Decision** (2026-10-20): merging a version bump only tags the commit and creates a draft GitHub Release. Publishing that draft by hand is the step that uploads to PyPI and pushes the Docker images.
-- **Alternatives turned down**: publishing as soon as the version bump is merged.
-- **What depends on it**:
-  - `release.yml` keeps its file name and its `release` environment, because the PyPI trusted publisher names both. Renaming either stops the upload.
-  - A re-run of `tag-release.yml` with the tag already on the tested commit looks for the draft with `gh release list`, and relies on that list holding draft Releases for the workflow's token, which has `contents: write`.
-
 ## A version bump also sets the Dockerfile default
 
 - **Decision** (2026-10-20): the pull request that bumps `version` in `pyproject.toml` also sets the `TFDIAGRAMS_VERSION` default in `Dockerfile` to the new version. `tests/test_tfdiagrams.py::test_dockerfile_default_version` fails when the two differ.
