@@ -10,7 +10,7 @@ Closed decisions about how a version of tfdiagrams is released, with the alterna
 - **Alternatives turned down**: publishing as soon as the version bump is merged.
 - **What depends on it**:
   - `release.yml` keeps its file name and its `release` environment, because the PyPI trusted publisher names both. Renaming either stops the upload.
-  - A re-run of `tag-release.yml` with the tag already on the tested commit looks for the draft with `gh release list`. That list holds draft Releases for a token with `contents: write`, which is the permission the workflow has, and does not hold them for a token with `contents: read`.
+  - A re-run of `tag-release.yml` with the tag already on the tested commit looks for the draft with `gh release list`, and relies on that list holding draft Releases for the workflow's token, which has `contents: write`. In a run in a private repository, the list held the draft for a token with `contents: write` and was empty for a token with `contents: read`. A re-run in this repository has not exercised it.
 
 ## A version bump also sets the Dockerfile default
 
