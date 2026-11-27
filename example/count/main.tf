@@ -27,3 +27,28 @@ resource "aws_instance" "web" {
   # This will create 4 instances
   count = 4
 }
+
+resource "aws_elb" "api" {
+  name = "terraform-example-elb-api"
+
+  # The same availability zone as our instances
+  availability_zones = ["${aws_instance.web.*.availability_zone}"]
+
+  listener {
+    instance_port     = 80
+    instance_protocol = "http"
+    lb_port           = 80
+    lb_protocol       = "http"
+  }
+
+  # The instances are registered automatically
+  instances = ["${aws_instance.api.*.id}"]
+}
+
+resource "aws_instance" "api" {
+  instance_type = "m1.small"
+  ami           = "${lookup(var.aws_amis, var.aws_region)}"
+
+  # This will create 4 instances
+  count = 4
+}
